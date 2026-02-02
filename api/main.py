@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
+from sqlalchemy.exc import SQLAlchemyError
 
 # Add parent directory to path so we can import lib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -112,28 +113,27 @@ class StatsResponse(BaseModel):
     ratings: dict
 
 
-# Global database engine and session factory
-engine = None
-SessionFactory = None
+class AppState:
+    """Application state container for database connection."""
+    engine = None
+    session_factory = None
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Application lifespan handler - setup and teardown."""
-    global engine, SessionFactory
-    
     # Startup
     print("Initializing database connection...")
-    engine = create_db_engine(echo=False)
+    AppState.engine = create_db_engine(echo=False)
     # Don't create tables - using existing schema
-    SessionFactory = get_session_factory(engine)
+    AppState.session_factory = get_session_factory(AppState.engine)
     print("Database initialized successfully.")
     
     yield
     
     # Shutdown
-    if engine:
-        engine.dispose()
+    if AppState.engine:
+        AppState.engine.dispose()
         print("Database connection closed.")
 
 
@@ -147,7 +147,9 @@ app = FastAPI(
 
 def get_db() -> Session:
     """Dependency to get database session."""
-    db = SessionFactory()
+    if AppState.session_factory is None:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    db = AppState.session_factory()  # pylint: disable=not-callable
     try:
         yield db
     finally:
@@ -254,7 +256,7 @@ async def health_check(db: Session = Depends(get_db)):
         # Test database connection
         db.execute(text("SELECT 1"))
         db_status = "connected"
-    except Exception as e:
+    except SQLAlchemyError as e:
         db_status = f"error: {str(e)}"
     
     return {
@@ -304,8 +306,8 @@ async def generate_media(
             movies=generated_movies
         )
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+    except (SQLAlchemyError, ValueError, KeyError, TypeError) as e:
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}") from e
 
 
 @app.get("/movies", response_model=List[MovieResponse], tags=["Movies"])
@@ -330,17 +332,14 @@ async def list_movies(
     return [movie_to_response(m) for m in movies]
 
 
-@app.get("/movies/{movie_id}", response_model=MovieResponse, tags=["Movies"])
-async def get_movie(movie_id: int, db: Session = Depends(get_db)):
+@app.get("/movies/random", response_model=List[MovieResponse], tags=["Movies"])
+async def get_random_movies(db: Session = Depends(get_db)):
     """
-    Get a specific movie by ID.
+    Get 3 random movies.
     """
-    movie = db.query(MovieModel).filter(MovieModel.movie_id == movie_id).first()
+    random_movies = db.query(MovieModel).order_by(func.newid()).limit(3).all()  # pylint: disable=not-callable
     
-    if not movie:
-        raise HTTPException(status_code=404, detail="Movie not found")
-    
-    return movie_to_response(movie)
+    return [movie_to_response(m) for m in random_movies]
 
 
 @app.get("/genres", response_model=List[dict], tags=["Lookup"])
@@ -377,22 +376,22 @@ async def get_stats(db: Session = Depends(get_db)):
     """
     Get statistics about the movie database.
     """
-    total_movies = db.query(func.count(MovieModel.movie_id)).scalar() or 0
-    total_reviews = db.query(func.count(CriticReviewModel.critic_review_id)).scalar() or 0
-    total_actors = db.query(func.count(ActorModel.actor_id)).scalar() or 0
-    total_directors = db.query(func.count(DirectorModel.director_id)).scalar() or 0
+    total_movies = db.query(func.count(MovieModel.movie_id)).scalar() or 0  # pylint: disable=not-callable
+    total_reviews = db.query(func.count(CriticReviewModel.critic_review_id)).scalar() or 0  # pylint: disable=not-callable
+    total_actors = db.query(func.count(ActorModel.actor_id)).scalar() or 0  # pylint: disable=not-callable
+    total_directors = db.query(func.count(DirectorModel.director_id)).scalar() or 0  # pylint: disable=not-callable
     
     # Genre distribution
     genre_counts = db.query(
         GenreModel.genre, 
-        func.count(MovieModel.movie_id)
+        func.count(MovieModel.movie_id)  # pylint: disable=not-callable
     ).join(MovieModel).group_by(GenreModel.genre).all()
     genres = {g[0]: g[1] for g in genre_counts}
     
     # Rating distribution
     rating_counts = db.query(
         MovieModel.mpaa_rating,
-        func.count(MovieModel.movie_id)
+        func.count(MovieModel.movie_id)  # pylint: disable=not-callable
     ).group_by(MovieModel.mpaa_rating).all()
     ratings = {r[0] or "NR": r[1] for r in rating_counts}
     
@@ -414,7 +413,7 @@ async def get_top_rated_movies(db: Session = Depends(get_db)):
     # Subquery to get average critic score per movie
     avg_scores = db.query(
         CriticReviewModel.movie_id,
-        func.avg(CriticReviewModel.critic_score).label("avg_score")
+        func.avg(CriticReviewModel.critic_score).label("avg_score")  # pylint: disable=not-callable
     ).group_by(CriticReviewModel.movie_id).subquery()
     
     # Join with movies and order by average score descending
@@ -433,7 +432,7 @@ async def get_worst_rated_movies(db: Session = Depends(get_db)):
     # Subquery to get average critic score per movie
     avg_scores = db.query(
         CriticReviewModel.movie_id,
-        func.avg(CriticReviewModel.critic_score).label("avg_score")
+        func.avg(CriticReviewModel.critic_score).label("avg_score")  # pylint: disable=not-callable
     ).group_by(CriticReviewModel.movie_id).subquery()
     
     # Join with movies and order by average score ascending
@@ -464,10 +463,10 @@ async def get_top_genres(db: Session = Depends(get_db)):
     top_genres = db.query(
         GenreModel.genre_id,
         GenreModel.genre,
-        func.count(MovieModel.movie_id).label("movie_count")
+        func.count(MovieModel.movie_id).label("movie_count")  # pylint: disable=not-callable
     ).join(MovieModel).group_by(
         GenreModel.genre_id, GenreModel.genre
-    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()
+    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()  # pylint: disable=not-callable
     
     return [{"genre_id": g.genre_id, "genre": g.genre, "movie_count": g.movie_count} for g in top_genres]
 
@@ -480,10 +479,10 @@ async def get_top_actors(db: Session = Depends(get_db)):
     top_actors = db.query(
         ActorModel.actor_id,
         ActorModel.actor,
-        func.count(MovieModel.movie_id).label("movie_count")
+        func.count(MovieModel.movie_id).label("movie_count")  # pylint: disable=not-callable
     ).join(ActorModel.movies).group_by(
         ActorModel.actor_id, ActorModel.actor
-    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()
+    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()  # pylint: disable=not-callable
     
     return [{"actor_id": a.actor_id, "actor": a.actor, "movie_count": a.movie_count} for a in top_actors]
 
@@ -496,13 +495,25 @@ async def get_top_directors(db: Session = Depends(get_db)):
     top_directors = db.query(
         DirectorModel.director_id,
         DirectorModel.director,
-        func.count(MovieModel.movie_id).label("movie_count")
+        func.count(MovieModel.movie_id).label("movie_count")  # pylint: disable=not-callable
     ).join(DirectorModel.movies).group_by(
         DirectorModel.director_id, DirectorModel.director
-    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()
+    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()  # pylint: disable=not-callable
     
     return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count} for d in top_directors]
 
+
+@app.get("/movies/{movie_id}", response_model=MovieResponse, tags=["Movies"])
+async def get_movie(movie_id: int, db: Session = Depends(get_db)):
+    """
+    Get a specific movie by ID.
+    """
+    movie = db.query(MovieModel).filter(MovieModel.movie_id == movie_id).first()
+    
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found")
+    
+    return movie_to_response(movie)
 
 if __name__ == "__main__":
     import uvicorn
