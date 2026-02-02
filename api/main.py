@@ -20,6 +20,7 @@ from typing import Optional, List
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
@@ -514,6 +515,12 @@ async def get_movie(movie_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Movie not found")
     
     return movie_to_response(movie)
+
+# Mount static files for image hosting
+images_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images")
+if os.path.exists(images_dir):
+    app.mount("/images", StaticFiles(directory=images_dir), name="images")
+
 
 if __name__ == "__main__":
     import uvicorn

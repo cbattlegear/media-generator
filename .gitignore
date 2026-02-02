@@ -4,4 +4,8 @@ outputs/**/*.json
 outputs/**/*.jpg
 outputs/*.log
 
+# Ignore images folder contents but keep the folder
+images/*
+!images/.folder
+
 **/__pycache__/

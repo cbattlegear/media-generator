@@ -63,6 +63,7 @@ services:
       - LOCAL_MODEL_NAME=${LOCAL_MODEL_NAME}
     volumes:
       - ./outputs:/app/outputs
+      - ./images:/app/images
     depends_on:
       db:
         condition: service_healthy
