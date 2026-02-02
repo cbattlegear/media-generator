@@ -343,23 +343,6 @@ async def get_movie(movie_id: int, db: Session = Depends(get_db)):
     return movie_to_response(movie)
 
 
-@app.delete("/movies/{movie_id}", tags=["Movies"])
-async def delete_movie(movie_id: int, db: Session = Depends(get_db)):
-    """
-    Delete a movie by ID.
-    """
-    movie = db.query(MovieModel).filter(MovieModel.movie_id == movie_id).first()
-    
-    if not movie:
-        raise HTTPException(status_code=404, detail="Movie not found")
-    
-    title = movie.title
-    db.delete(movie)
-    db.commit()
-    
-    return {"message": f"Movie '{title}' deleted successfully"}
-
-
 @app.get("/genres", response_model=List[dict], tags=["Lookup"])
 async def list_genres(db: Session = Depends(get_db)):
     """List all genres."""
