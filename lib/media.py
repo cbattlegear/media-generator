@@ -115,9 +115,6 @@ class media:
         except Exception as e:
             self._process.outputMessage(f"An issue occurred building the object prompt: {e}", "error")
             return False, "An error occurred."
-        except:
-            self._process.outputMessage(f"Error opening prompt file. {prompt_file_path}. Check that it exists!","error")
-            exit(1)
 
     # Submits the prompt to the API and returns the response as a formatted json object
     def generateObject(self):

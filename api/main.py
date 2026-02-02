@@ -178,7 +178,7 @@ def save_movie_to_db(media_object, db: Session) -> MovieModel:
         popularity_score=Decimal(str(media_object.popularity_score)) if media_object.popularity_score else None,
         genre_id=genre.genre_id,
         poster_url=getattr(media_object, 'poster_url', None),
-        release_date=generate_random_release_date(),
+        release_date=date.today(),
     )
     
     db.add(movie_record)
@@ -404,6 +404,104 @@ async def get_stats(db: Session = Depends(get_db)):
         genres=genres,
         ratings=ratings
     )
+
+
+@app.get("/movies/top-rated", response_model=List[MovieResponse], tags=["Movies"])
+async def get_top_rated_movies(db: Session = Depends(get_db)):
+    """
+    Get the top 5 highest rated movies by average critic score.
+    """
+    # Subquery to get average critic score per movie
+    avg_scores = db.query(
+        CriticReviewModel.movie_id,
+        func.avg(CriticReviewModel.critic_score).label("avg_score")
+    ).group_by(CriticReviewModel.movie_id).subquery()
+    
+    # Join with movies and order by average score descending
+    top_movies = db.query(MovieModel).join(
+        avg_scores, MovieModel.movie_id == avg_scores.c.movie_id
+    ).order_by(avg_scores.c.avg_score.desc()).limit(5).all()
+    
+    return [movie_to_response(m) for m in top_movies]
+
+
+@app.get("/movies/worst-rated", response_model=List[MovieResponse], tags=["Movies"])
+async def get_worst_rated_movies(db: Session = Depends(get_db)):
+    """
+    Get the top 5 lowest rated movies by average critic score.
+    """
+    # Subquery to get average critic score per movie
+    avg_scores = db.query(
+        CriticReviewModel.movie_id,
+        func.avg(CriticReviewModel.critic_score).label("avg_score")
+    ).group_by(CriticReviewModel.movie_id).subquery()
+    
+    # Join with movies and order by average score ascending
+    worst_movies = db.query(MovieModel).join(
+        avg_scores, MovieModel.movie_id == avg_scores.c.movie_id
+    ).order_by(avg_scores.c.avg_score.asc()).limit(5).all()
+    
+    return [movie_to_response(m) for m in worst_movies]
+
+
+@app.get("/movies/recent", response_model=List[MovieResponse], tags=["Movies"])
+async def get_recent_movies(db: Session = Depends(get_db)):
+    """
+    Get the top 5 most recently released movies.
+    """
+    recent_movies = db.query(MovieModel).order_by(
+        MovieModel.release_date.desc()
+    ).limit(5).all()
+    
+    return [movie_to_response(m) for m in recent_movies]
+
+
+@app.get("/genres/top", response_model=List[dict], tags=["Lookup"])
+async def get_top_genres(db: Session = Depends(get_db)):
+    """
+    Get the top 5 genres by movie count.
+    """
+    top_genres = db.query(
+        GenreModel.genre_id,
+        GenreModel.genre,
+        func.count(MovieModel.movie_id).label("movie_count")
+    ).join(MovieModel).group_by(
+        GenreModel.genre_id, GenreModel.genre
+    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()
+    
+    return [{"genre_id": g.genre_id, "genre": g.genre, "movie_count": g.movie_count} for g in top_genres]
+
+
+@app.get("/actors/top", response_model=List[dict], tags=["Lookup"])
+async def get_top_actors(db: Session = Depends(get_db)):
+    """
+    Get the top 5 actors by movie count.
+    """
+    top_actors = db.query(
+        ActorModel.actor_id,
+        ActorModel.actor,
+        func.count(MovieModel.movie_id).label("movie_count")
+    ).join(ActorModel.movies).group_by(
+        ActorModel.actor_id, ActorModel.actor
+    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()
+    
+    return [{"actor_id": a.actor_id, "actor": a.actor, "movie_count": a.movie_count} for a in top_actors]
+
+
+@app.get("/directors/top", response_model=List[dict], tags=["Lookup"])
+async def get_top_directors(db: Session = Depends(get_db)):
+    """
+    Get the top 5 directors by movie count.
+    """
+    top_directors = db.query(
+        DirectorModel.director_id,
+        DirectorModel.director,
+        func.count(MovieModel.movie_id).label("movie_count")
+    ).join(DirectorModel.movies).group_by(
+        DirectorModel.director_id, DirectorModel.director
+    ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()
+    
+    return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count} for d in top_directors]
 
 
 if __name__ == "__main__":
