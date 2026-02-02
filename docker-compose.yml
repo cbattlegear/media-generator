@@ -1,0 +1,74 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: media-generator-db
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${DB_PASSWORD:-YourStrong@Passw0rd}
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+      - ./db-init:/db-init:ro
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -Q "SELECT 1" -C || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: media-generator-db-init
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - MSSQL_SA_PASSWORD=${DB_PASSWORD:-YourStrong@Passw0rd}
+    volumes:
+      - ./db-init:/db-init:ro
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd", "-S", "db", "-U", "sa", "-P", "${DB_PASSWORD:-YourStrong@Passw0rd}", "-d", "master", "-i", "/db-init/init-db.sql", "-C"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: media-generator-api
+    ports:
+      - "8000:8000"
+    environment:
+      # Database connection
+      - DB_SERVER=db
+      - DB_NAME=${DB_NAME:-BattleCabbageVideo}
+      - DB_USER=sa
+      - DB_PASSWORD=${DB_PASSWORD:-YourStrong@Passw0rd}
+      - DB_DRIVER=ODBC Driver 18 for SQL Server
+      # AI Model settings (pass through from host .env)
+      - MODEL_TYPE=${MODEL_TYPE:-azure_openai}
+      - AZURE_OPENAI_TEXT_ENDPOINT_KEY=${AZURE_OPENAI_TEXT_ENDPOINT_KEY}
+      - AZURE_OPENAI_TEXT_ENDPOINT=${AZURE_OPENAI_TEXT_ENDPOINT}
+      - AZURE_OPENAI_TEXT_DEPLOYMENT_NAME=${AZURE_OPENAI_TEXT_DEPLOYMENT_NAME}
+      - AZURE_OPENAI_TEXT_API_VERSION=${AZURE_OPENAI_TEXT_API_VERSION}
+      - AZURE_OPENAI_IMAGE_ENDPOINT_KEY=${AZURE_OPENAI_IMAGE_ENDPOINT_KEY}
+      - AZURE_OPENAI_IMAGE_ENDPOINT=${AZURE_OPENAI_IMAGE_ENDPOINT}
+      - AZURE_OPENAI_IMAGE_DEPLOYMENT_NAME=${AZURE_OPENAI_IMAGE_DEPLOYMENT_NAME}
+      - AZURE_OPENAI_IMAGE_API_VERSION=${AZURE_OPENAI_IMAGE_API_VERSION}
+      - AZURE_OPENAI_VISION_ENDPOINT_KEY=${AZURE_OPENAI_VISION_ENDPOINT_KEY}
+      - AZURE_OPENAI_VISION_ENDPOINT=${AZURE_OPENAI_VISION_ENDPOINT}
+      - AZURE_OPENAI_VISION_DEPLOYMENT_NAME=${AZURE_OPENAI_VISION_DEPLOYMENT_NAME}
+      - AZURE_OPENAI_VISION_API_VERSION=${AZURE_OPENAI_VISION_API_VERSION}
+      - LOCAL_MODEL_NAME=${LOCAL_MODEL_NAME}
+    volumes:
+      - ./outputs:/app/outputs
+    depends_on:
+      db:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data:
