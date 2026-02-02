@@ -16,6 +16,7 @@ class aoaiModel():
         self.client = None
         self.system_prompt = ""
         self.user_prompt = ""
+        self.prompts_temperature = 0.7  # Default temperature for completions
     
     def to_json(self):
         # Return a clean json object for saving details without sensitive information

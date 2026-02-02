@@ -22,7 +22,7 @@ class media:
         self.popularity_score = round(random.uniform(1, 10), 1)
         self.genre = ""
         self.reviews = []
-        self.model_type = ""
+        self.model_type = os.getenv("MODEL_TYPE", "").lower()
         self.movie_prompt = {}
         self.image_prompt = {}
         self.vision_prompt = {

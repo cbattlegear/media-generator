@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-generator"
+version = "1.0.0"
+description = "A Python library for generating AI-powered fake media objects including movie titles, descriptions, critic reviews, and poster images."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "cbattlegear"}
+]
+keywords = ["ai", "media", "generator", "openai", "azure", "movies", "posters"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "annotated-types>=0.7.0",
+    "anyio>=4.4.0",
+    "certifi>=2024.7.4",
+    "charset-normalizer>=3.3.2",
+    "contourpy>=1.2.1",
+    "cycler>=0.12.1",
+    "distro>=1.9.0",
+    "fonttools>=4.53.1",
+    "httpx>=0.27.0",
+    "idna>=3.7",
+    "matplotlib>=3.9.1",
+    "numpy>=2.0.1",
+    "openai>=1.40.4",
+    "pillow>=10.4.0",
+    "pydantic>=2.8.2",
+    "python-dateutil>=2.9.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+    "tqdm>=4.66.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/cbattlegear/media-generator"
+"Bug Tracker" = "https://github.com/cbattlegear/media-generator/issues"
+
+[project.scripts]
+media-generator = "lib.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["lib*", "templates*", "assets*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312']
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
