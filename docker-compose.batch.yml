@@ -1,3 +1,11 @@
+# Batch Poster Generation
+#
+# Run with:
+#   docker compose -f docker-compose.batch.yml up --build --abort-on-container-exit
+#
+# The --abort-on-container-exit flag ensures all containers (including InvokeAI)
+# stop once the batch script finishes.
+
 networks:
   image-gen:
     name: image-gen
