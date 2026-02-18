@@ -8,4 +8,7 @@ outputs/*.log
 images/*
 !images/.folder
 
+models/*
+backends/*
+
 **/__pycache__/

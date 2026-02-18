@@ -34,5 +34,7 @@ ollama>=0.6.1
 # Web API dependencies
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9
 sqlalchemy>=2.0.0
 pyodbc>=5.1.0
+slowapi>=0.1.9

@@ -1,0 +1,56 @@
+networks:
+  image-gen:
+    name: image-gen
+
+volumes:
+  invokeai:
+
+services:
+  invokeai:
+    container_name: invokeai
+    image: ghcr.io/invoke-ai/invokeai:latest
+    networks:
+      - image-gen
+    volumes:
+      - invokeai:/invokeai
+    ports:
+      - "9090:9090"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9090/api/v1/app/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: "no"
+
+  batch:
+    container_name: batch-poster-gen
+    build:
+      context: .
+      dockerfile: Dockerfile.batch
+    networks:
+      - image-gen
+    environment:
+      - INVOKEAI_URL=http://invokeai:9090
+      - MEDIA_API_URL=${MEDIA_API_URL:-https://movies.battlecabbage.com}
+      - API_KEY=${API_KEY}
+      - BATCH_LIMIT=${BATCH_LIMIT:-100}
+      - VERBOSE=${VERBOSE:-}
+      # AI model settings for prompt generation
+      - MODEL_TYPE=${MODEL_TYPE:-azure_openai}
+      - AZURE_OPENAI_TEXT_ENDPOINT_KEY=${AZURE_OPENAI_TEXT_ENDPOINT_KEY}
+      - AZURE_OPENAI_TEXT_ENDPOINT=${AZURE_OPENAI_TEXT_ENDPOINT}
+      - AZURE_OPENAI_TEXT_DEPLOYMENT_NAME=${AZURE_OPENAI_TEXT_DEPLOYMENT_NAME}
+      - AZURE_OPENAI_TEXT_API_VERSION=${AZURE_OPENAI_TEXT_API_VERSION}
+      - LOCAL_MODEL_NAME=${LOCAL_MODEL_NAME}
+    depends_on:
+      invokeai:
+        condition: service_healthy
+    restart: "no"

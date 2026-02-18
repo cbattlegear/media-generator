@@ -14,17 +14,22 @@ Or run directly:
 import random
 import sys
 import os
+import shutil
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Optional, List
 from decimal import Decimal
 
-from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, UploadFile, File, Header
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 from sqlalchemy.exc import SQLAlchemyError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Add parent directory to path so we can import lib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,7 +48,7 @@ from api.models import (
 # Pydantic models for API request/response
 class GenerateRequest(BaseModel):
     """Request model for generating media."""
-    count: int = Field(default=1, ge=1, le=10, description="Number of media objects to generate (1-10)")
+    count: int = Field(default=1, ge=1, le=5, description="Number of media objects to generate (1-5)")
     skip_image: bool = Field(default=False, description="Skip image generation")
     verbose: bool = Field(default=False, description="Enable verbose logging")
 
@@ -146,6 +151,17 @@ app = FastAPI(
 )
 
 
+# Rate limiting setup - use X-Real-IP header if available, fallback to remote address
+def get_real_ip(request: Request) -> str:
+    """Get client IP from X-Real-IP header or fallback to direct connection."""
+    return request.headers.get("X-Real-IP", get_remote_address(request))
+
+
+limiter = Limiter(key_func=get_real_ip)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
 def get_db() -> Session:
     """Dependency to get database session."""
     if AppState.session_factory is None:
@@ -155,6 +171,16 @@ def get_db() -> Session:
         yield db
     finally:
         db.close()
+
+
+def verify_api_key(x_api_key: str = Header(..., description="API key for write operations")):
+    """Dependency to validate API key from the X-Api-Key header."""
+    valid_keys = os.getenv("API_KEYS", "").split(",")
+    valid_keys = [k.strip() for k in valid_keys if k.strip()]
+    if not valid_keys:
+        raise HTTPException(status_code=500, detail="No API keys configured on server")
+    if x_api_key not in valid_keys:
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 def generate_random_release_date() -> date:
@@ -268,8 +294,10 @@ async def health_check(db: Session = Depends(get_db)):
 
 
 @app.post("/generate", response_model=GenerateResponse, tags=["Generation"])
+@limiter.limit("10/minute")
 async def generate_media(
-    request: GenerateRequest,
+    request: Request,
+    generate_request: GenerateRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -277,18 +305,20 @@ async def generate_media(
     
     Generates AI-powered fake movie/media information and saves to the database.
     Returns the generated media objects as JSON.
+    
+    Rate limited to 10 requests per minute per IP.
     """
     try:
         generator = MediaGenerator(
-            verbose=request.verbose,
+            verbose=generate_request.verbose,
             dry_run=True,  # Don't save files, we save to DB instead
-            skip_image=request.skip_image
+            skip_image=generate_request.skip_image
         )
         
         generated_movies = []
         success_count = 0
         
-        for _ in range(request.count):
+        for _ in range(generate_request.count):
             result = generator.generate_single(save=False)
             
             if result.success and result.media_object:
@@ -302,7 +332,7 @@ async def generate_media(
         
         return GenerateResponse(
             success=success_count > 0,
-            message=f"Generated {success_count} of {request.count} movies",
+            message=f"Generated {success_count} of {generate_request.count} movies",
             generated_count=success_count,
             movies=generated_movies
         )
@@ -502,6 +532,69 @@ async def get_top_directors(db: Session = Depends(get_db)):
     ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()  # pylint: disable=not-callable
     
     return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count} for d in top_directors]
+
+
+@app.get("/movies/missing-posters", response_model=List[MovieResponse], tags=["Movies"])
+async def get_movies_missing_posters(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of records to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all movies that are missing poster images.
+
+    Returns movies where poster_url is NULL or set to the placeholder value.
+    """
+    movies = db.query(MovieModel).filter(
+        (MovieModel.poster_url.is_(None)) | (MovieModel.poster_url == "movie_poster_url.jpeg")
+    ).order_by(MovieModel.movie_id.asc()).offset(skip).limit(limit).all()
+
+    return [movie_to_response(m) for m in movies]
+
+
+@app.put("/movies/{movie_id}/poster", response_model=MovieResponse, tags=["Movies"])
+async def upload_movie_poster(
+    movie_id: int,
+    file: UploadFile = File(..., description="Poster image file"),
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a poster image for a movie and update its poster_url.
+
+    Accepts an image file upload, saves it to the images directory,
+    and updates the movie's poster_url in the database.
+    """
+    movie = db.query(MovieModel).filter(MovieModel.movie_id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found")
+
+    # Validate file is an image
+    if file.content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(status_code=400, detail="File must be a JPEG, PNG, or WebP image")
+
+    # Determine file extension from content type
+    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+    ext = ext_map[file.content_type]
+    filename = f"movie_{movie_id}.{ext}"
+
+    # Save the file to the images directory
+    img_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images")
+    os.makedirs(img_dir, exist_ok=True)
+    file_path = os.path.join(img_dir, filename)
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except IOError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}") from e
+
+    # Update the movie's poster_url
+    movie.poster_url = f"/images/{filename}"
+    db.commit()
+    db.refresh(movie)
+
+    return movie_to_response(movie)
 
 
 @app.get("/movies/{movie_id}", response_model=MovieResponse, tags=["Movies"])

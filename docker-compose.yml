@@ -61,6 +61,7 @@ services:
       - AZURE_OPENAI_VISION_DEPLOYMENT_NAME=${AZURE_OPENAI_VISION_DEPLOYMENT_NAME}
       - AZURE_OPENAI_VISION_API_VERSION=${AZURE_OPENAI_VISION_API_VERSION}
       - LOCAL_MODEL_NAME=${LOCAL_MODEL_NAME}
+      - API_KEYS=${API_KEYS}
     volumes:
       - ./outputs:/app/outputs
       - ./images:/app/images
