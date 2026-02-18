@@ -556,6 +556,7 @@ async def get_movies_missing_posters(
 async def upload_movie_poster(
     movie_id: int,
     file: UploadFile = File(..., description="Poster image file"),
+    thumbnail: Optional[UploadFile] = File(None, description="Optional webp thumbnail image"),
     _api_key: None = Depends(verify_api_key),
     db: Session = Depends(get_db)
 ):
@@ -564,21 +565,22 @@ async def upload_movie_poster(
 
     Accepts an image file upload, saves it to the images directory,
     and updates the movie's poster_url in the database.
+    If a thumbnail is provided, the poster_url will point to the thumbnail instead.
     """
     movie = db.query(MovieModel).filter(MovieModel.movie_id == movie_id).first()
     if not movie:
         raise HTTPException(status_code=404, detail="Movie not found")
 
-    # Validate file is an image
-    if file.content_type not in ("image/jpeg", "image/png", "image/webp"):
+    valid_types = ("image/jpeg", "image/png", "image/webp")
+    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+
+    # Validate and save the original image
+    if file.content_type not in valid_types:
         raise HTTPException(status_code=400, detail="File must be a JPEG, PNG, or WebP image")
 
-    # Determine file extension from content type
-    ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
     ext = ext_map[file.content_type]
     filename = f"movie_{movie_id}.{ext}"
 
-    # Save the file to the images directory
     img_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images")
     os.makedirs(img_dir, exist_ok=True)
     file_path = os.path.join(img_dir, filename)
@@ -589,8 +591,30 @@ async def upload_movie_poster(
     except IOError as e:
         raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}") from e
 
-    # Update the movie's poster_url
-    movie.poster_url = f"/images/{filename}"
+    # Default poster_url points to the original
+    poster_url = f"/images/{filename}"
+
+    # Save thumbnail if provided
+    if thumbnail is not None:
+        if thumbnail.content_type not in valid_types:
+            raise HTTPException(
+                status_code=400, detail="Thumbnail must be a JPEG, PNG, or WebP image"
+            )
+        thumb_ext = ext_map[thumbnail.content_type]
+        thumb_filename = f"movie_{movie_id}_thumb.{thumb_ext}"
+        thumb_path = os.path.join(img_dir, thumb_filename)
+
+        try:
+            with open(thumb_path, "wb") as buffer:
+                shutil.copyfileobj(thumbnail.file, buffer)
+        except IOError as e:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to save thumbnail: {str(e)}"
+            ) from e
+
+        poster_url = f"/images/{thumb_filename}"
+
+    movie.poster_url = poster_url
     db.commit()
     db.refresh(movie)
 

@@ -24,6 +24,7 @@ from io import BytesIO
 
 import requests
 from dotenv import load_dotenv
+from PIL import Image
 
 # Add project root to path for lib imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +47,11 @@ ENCODER_MODEL_NAME = "FLUX.2 Klein Qwen3 4B Encoder"
 # Image dimensions for poster generation (portrait aspect ratio)
 IMAGE_WIDTH = 1024
 IMAGE_HEIGHT = 1792
+
+# Thumbnail dimensions and quality
+THUMB_WIDTH = 512
+THUMB_HEIGHT = 896
+THUMB_QUALITY = 80
 
 
 def _random_id(length=10):
@@ -351,9 +357,24 @@ def download_image(invokeai_url, image_name):
     return BytesIO(resp.content)
 
 
-def upload_poster(api_url, movie_id, image_data, api_key):
-    """Upload a poster image to the media-generator API."""
-    files = {"file": ("poster.png", image_data, "image/png")}
+def create_thumbnail(image_data: BytesIO) -> BytesIO:
+    """Create a 512x896 webp thumbnail from the original image data."""
+    image_data.seek(0)
+    with Image.open(image_data) as img:
+        img = img.convert("RGB")
+        img = img.resize((THUMB_WIDTH, THUMB_HEIGHT), Image.LANCZOS)
+        thumb_buf = BytesIO()
+        img.save(thumb_buf, "WEBP", quality=THUMB_QUALITY)
+        thumb_buf.seek(0)
+    image_data.seek(0)
+    return thumb_buf
+
+
+def upload_poster(api_url, movie_id, image_data, api_key, thumbnail_data=None):
+    """Upload a poster image (and optional thumbnail) to the media-generator API."""
+    files = [("file", ("poster.png", image_data, "image/png"))]
+    if thumbnail_data is not None:
+        files.append(("thumbnail", ("poster_thumb.webp", thumbnail_data, "image/webp")))
     headers = {"X-Api-Key": api_key}
     resp = requests.put(f"{api_url}/movies/{movie_id}/poster", files=files, headers=headers)
     resp.raise_for_status()
@@ -412,10 +433,12 @@ def process_movie(movie, api_url, invokeai_url, templates_base, api_key, graph, 
         log(f"  Failed to download image: {e}", "error")
         return False
 
-    # Step 5: Upload poster to the media-generator API
+    # Step 5: Create thumbnail and upload poster to the media-generator API
     try:
-        log(f"  Uploading poster for movie {movie_id}...")
-        upload_poster(api_url, movie_id, image_data, api_key)
+        log(f"  Creating thumbnail...")
+        thumbnail_data = create_thumbnail(image_data)
+        log(f"  Uploading poster and thumbnail for movie {movie_id}...")
+        upload_poster(api_url, movie_id, image_data, api_key, thumbnail_data)
         log(f"  Poster uploaded for '{title}'", "success")
         return True
     except Exception as e:
