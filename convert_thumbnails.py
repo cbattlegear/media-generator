@@ -127,15 +127,17 @@ def main():
     fail_count = 0
 
     for movie_id, poster_url in rows:
-        # poster_url is like "/images/movie_42.png"
-        filename = os.path.basename(poster_url)
-        source_path = images_dir / filename
+        # poster_url may be "/images/movie_42.png" or "/images/subdir/movie_42.png"
+        # Strip the leading "/images/" to get the relative path within images_dir
+        rel_path = poster_url.replace("/images/", "", 1) if poster_url.startswith("/images/") else os.path.basename(poster_url)
+        source_path = images_dir / rel_path
 
-        # Build thumbnail filename: movie_42.png -> movie_42_thumb.webp
-        stem = Path(filename).stem
-        thumb_filename = f"{stem}_thumb.webp"
-        thumb_path = images_dir / thumb_filename
-        thumb_url = f"/images/{thumb_filename}"
+        # Build thumbnail path preserving subdirectory structure
+        source_p = Path(rel_path)
+        thumb_filename = f"{source_p.stem}_thumb.webp"
+        thumb_rel = str(source_p.parent / thumb_filename) if source_p.parent != Path(".") else thumb_filename
+        thumb_path = images_dir / thumb_rel
+        thumb_url = f"/images/{thumb_rel.replace(os.sep, '/')}"
 
         # Skip if already pointing to a thumbnail
         if "_thumb.webp" in poster_url:
@@ -143,17 +145,17 @@ def main():
             continue
 
         if not source_path.exists():
-            print(f"  [SKIP] movie {movie_id}: source not found ({filename})")
+            print(f"  [SKIP] movie {movie_id}: source not found ({rel_path})")
             skip_count += 1
             continue
 
         if args.dry_run:
-            print(f"  [DRY] movie {movie_id}: {filename} -> {thumb_filename}")
+            print(f"  [DRY] movie {movie_id}: {rel_path} -> {thumb_rel}")
             success_count += 1
             continue
 
         # Create thumbnail
-        print(f"  Converting movie {movie_id}: {filename} -> {thumb_filename}")
+        print(f"  Converting movie {movie_id}: {rel_path} -> {thumb_rel}")
         if not create_thumbnail(source_path, thumb_path):
             fail_count += 1
             continue
