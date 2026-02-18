@@ -822,7 +822,10 @@ async def fail_poster_queue_item(
 
 
 @app.get("/poster-queue/stats", response_model=PosterQueueStatsResponse, tags=["Poster Queue"])
-async def poster_queue_stats(db: Session = Depends(get_db)):
+async def poster_queue_stats(
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
     """
     Get poster queue statistics.
     """
