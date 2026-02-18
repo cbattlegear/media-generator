@@ -49,7 +49,6 @@ from api.models import (
 class GenerateRequest(BaseModel):
     """Request model for generating media."""
     count: int = Field(default=1, ge=1, le=5, description="Number of media objects to generate (1-5)")
-    skip_image: bool = Field(default=False, description="Skip image generation")
     verbose: bool = Field(default=False, description="Enable verbose logging")
 
 
@@ -312,7 +311,7 @@ async def generate_media(
         generator = MediaGenerator(
             verbose=generate_request.verbose,
             dry_run=True,  # Don't save files, we save to DB instead
-            skip_image=generate_request.skip_image
+            skip_image=True  # Posters are generated via the batch process
         )
         
         generated_movies = []
