@@ -208,9 +208,36 @@ def log(message, level="info"):
     print(f"  {prefix.get(level, '[INFO]')} {message}")
 
 
-def get_movies_missing_posters(api_url, limit=100):
-    """Fetch movies that need poster generation from the media-generator API."""
-    resp = requests.get(f"{api_url}/movies/missing-posters", params={"limit": limit})
+def backfill_queue(api_url, api_key):
+    """Call the backfill endpoint to populate the poster queue."""
+    headers = {"X-Api-Key": api_key}
+    resp = requests.post(f"{api_url}/poster-queue/backfill", headers=headers)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def pop_queue_item(api_url, api_key):
+    """Pop the next available item from the poster queue. Returns None if empty."""
+    headers = {"X-Api-Key": api_key}
+    resp = requests.post(f"{api_url}/poster-queue/pop", headers=headers)
+    if resp.status_code == 204:
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
+
+def complete_queue_item(api_url, queue_id, api_key):
+    """Mark a queue item as completed."""
+    headers = {"X-Api-Key": api_key}
+    resp = requests.post(f"{api_url}/poster-queue/{queue_id}/complete", headers=headers)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fail_queue_item(api_url, queue_id, api_key):
+    """Report a queue item failure."""
+    headers = {"X-Api-Key": api_key}
+    resp = requests.post(f"{api_url}/poster-queue/{queue_id}/fail", headers=headers)
     resp.raise_for_status()
     return resp.json()
 
@@ -381,11 +408,13 @@ def upload_poster(api_url, movie_id, image_data, api_key, thumbnail_data=None):
     return resp.json()
 
 
-def process_movie(movie, api_url, invokeai_url, templates_base, api_key, graph, seed_id, prompt_id, verbose=False):
-    """Generate and upload a poster for a single movie."""
+def process_queue_item(queue_item, api_url, invokeai_url, templates_base, api_key, graph, seed_id, prompt_id, verbose=False):
+    """Generate and upload a poster for a queue item."""
+    queue_id = queue_item["queue_id"]
+    movie = queue_item["movie"]
     movie_id = movie["movie_id"]
     title = movie["title"]
-    log(f"Processing movie {movie_id}: '{title}'")
+    log(f"Processing movie {movie_id}: '{title}' (queue item {queue_id})")
 
     # Step 1: Build the image prompt using the AI text model
     log(f"  Generating image prompt for '{title}'...")
@@ -461,10 +490,6 @@ def main():
         help=f"InvokeAI API URL (default: {DEFAULT_INVOKEAI_URL})"
     )
     parser.add_argument(
-        "--limit", type=int, default=100,
-        help="Maximum number of movies to process (default: 100)"
-    )
-    parser.add_argument(
         "--verbose", action="store_true",
         help="Enable verbose output"
     )
@@ -496,31 +521,50 @@ def main():
         log(f"Failed to look up models from InvokeAI: {e}", "error")
         return 1
 
-    # Fetch movies missing posters
+    # Backfill the poster queue with any movies missing posters
+    log("Backfilling poster queue...")
     try:
-        movies = get_movies_missing_posters(args.media_api, limit=args.limit)
+        backfill_result = backfill_queue(args.media_api, api_key)
+        log(f"Queue backfill: {backfill_result.get('added', 0)} added, "
+            f"{backfill_result.get('already_queued', 0)} already queued", "success")
     except Exception as e:
-        log(f"Failed to fetch movies: {e}", "error")
+        log(f"Failed to backfill queue: {e}", "error")
         return 1
 
-    if not movies:
-        log("No movies missing posters. Nothing to do.", "success")
-        return 0
-
-    log(f"Found {len(movies)} movie(s) missing posters")
     print()
 
     success_count = 0
     fail_count = 0
 
-    for movie in movies:
+    # Pop items from the queue until empty
+    while True:
         try:
-            if process_movie(movie, args.media_api, args.invokeai, templates_base, api_key, graph, seed_id, prompt_id, args.verbose):
+            queue_item = pop_queue_item(args.media_api, api_key)
+        except Exception as e:
+            log(f"Failed to pop from queue: {e}", "error")
+            break
+
+        if queue_item is None:
+            log("Queue empty, no more items to process.")
+            break
+
+        queue_id = queue_item["queue_id"]
+        try:
+            if process_queue_item(
+                queue_item, args.media_api, args.invokeai, templates_base,
+                api_key, graph, seed_id, prompt_id, args.verbose
+            ):
+                complete_queue_item(args.media_api, queue_id, api_key)
                 success_count += 1
             else:
+                fail_queue_item(args.media_api, queue_id, api_key)
                 fail_count += 1
         except Exception as e:
-            log(f"Unexpected error processing movie {movie.get('movie_id')}: {e}", "error")
+            log(f"Unexpected error processing queue item {queue_id}: {e}", "error")
+            try:
+                fail_queue_item(args.media_api, queue_id, api_key)
+            except Exception:
+                pass
             fail_count += 1
         print()
 

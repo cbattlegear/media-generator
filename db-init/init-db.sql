@@ -107,5 +107,27 @@ BEGIN
 END
 GO
 
+-- Create poster generation queue table
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='posterqueue' AND xtype='U')
+BEGIN
+    CREATE TABLE [dbo].[posterqueue](
+        [queue_id] [int] IDENTITY(1,1) NOT NULL,
+        [movie_id] [int] NOT NULL,
+        [status] [nvarchar](20) NOT NULL DEFAULT 'pending',
+        [attempt_count] [int] NOT NULL DEFAULT 0,
+        [max_attempts] [int] NOT NULL DEFAULT 3,
+        [claimed_at] [datetime2] NULL,
+        [completed_at] [datetime2] NULL,
+        [created_at] [datetime2] NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT [PK_posterqueue] PRIMARY KEY CLUSTERED ([queue_id] ASC),
+        CONSTRAINT [FK_posterqueue_movies] FOREIGN KEY([movie_id]) REFERENCES [dbo].[movies] ([movie_id]),
+        CONSTRAINT [UQ_posterqueue_movie] UNIQUE ([movie_id])
+    );
+
+    CREATE NONCLUSTERED INDEX [IX_posterqueue_status_claimed]
+        ON [dbo].[posterqueue] ([status], [claimed_at]);
+END
+GO
+
 PRINT 'Database schema initialization complete.';
 GO

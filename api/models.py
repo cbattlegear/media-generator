@@ -4,12 +4,13 @@ Database models for the media-generator API.
 Maps to an existing SQL Server database schema with tables:
 - movies, genres, actors, directors, criticreviews
 - actorstomoviesjoin, directorstomoviesjoin
+- posterqueue
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Date, 
+    create_engine, Column, Integer, String, Date, DateTime,
     DECIMAL, ForeignKey, Table
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
@@ -116,6 +117,26 @@ class CriticReviewModel(Base):
 
     def __repr__(self):
         return f"<CriticReview(critic_review_id={self.critic_review_id}, critic_score={self.critic_score})>"
+
+
+class PosterQueueModel(Base):
+    """SQLAlchemy model for posterqueue table."""
+    __tablename__ = "posterqueue"
+
+    queue_id = Column(Integer, primary_key=True, autoincrement=True)
+    movie_id = Column(Integer, ForeignKey('movies.movie_id'), nullable=False, unique=True)
+    status = Column(String(20), nullable=False, default="pending")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    claimed_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationship
+    movie = relationship("MovieModel")
+
+    def __repr__(self):
+        return f"<PosterQueue(queue_id={self.queue_id}, movie_id={self.movie_id}, status='{self.status}')>"
 
 
 def get_database_url() -> str:

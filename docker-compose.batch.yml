@@ -49,7 +49,6 @@ services:
       - INVOKEAI_URL=http://invokeai:9090
       - MEDIA_API_URL=${MEDIA_API_URL:-https://movies.battlecabbage.com}
       - API_KEY=${API_KEY}
-      - BATCH_LIMIT=${BATCH_LIMIT:-100}
       - VERBOSE=${VERBOSE:-}
       # AI model settings for prompt generation
       - MODEL_TYPE=${MODEL_TYPE:-azure_openai}

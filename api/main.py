@@ -26,7 +26,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from sqlalchemy.orm import joinedload
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -40,6 +41,7 @@ load_dotenv()
 from lib import MediaGenerator
 from api.models import (
     MovieModel, GenreModel, ActorModel, DirectorModel, CriticReviewModel,
+    PosterQueueModel,
     create_db_engine, get_session_factory,
     get_or_create_genre, get_or_create_actor, get_or_create_director
 )
@@ -238,6 +240,9 @@ def save_movie_to_db(media_object, db: Session) -> MovieModel:
         )
         db.add(review_record)
     
+    # Auto-enqueue for poster generation
+    enqueue_movie(db, movie_record.movie_id)
+    
     db.commit()
     db.refresh(movie_record)
     
@@ -322,7 +327,7 @@ async def generate_media(
             result = generator.generate_single(save=False)
             
             if result.success and result.media_object:
-                # Save to database
+                # Save to database (also enqueues for poster generation)
                 movie_record = save_movie_to_db(result.media_object, db)
                 
                 # Build response
@@ -632,6 +637,208 @@ async def get_movie(movie_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Movie not found")
     
     return movie_to_response(movie)
+
+
+# --- Poster Queue Endpoints ---
+
+STALE_CLAIM_MINUTES = 10
+
+
+class PosterQueueResponse(BaseModel):
+    """Response model for a poster queue item."""
+    queue_id: int
+    movie_id: int
+    status: str
+    attempt_count: int
+    max_attempts: int
+    movie: Optional[MovieResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PosterQueueStatsResponse(BaseModel):
+    """Response model for queue statistics."""
+    pending: int
+    claimed: int
+    completed: int
+    failed: int
+    total: int
+
+
+def queue_item_to_response(item: PosterQueueModel, include_movie: bool = False) -> dict:
+    """Convert a PosterQueueModel to a response dict."""
+    resp = {
+        "queue_id": item.queue_id,
+        "movie_id": item.movie_id,
+        "status": item.status,
+        "attempt_count": item.attempt_count,
+        "max_attempts": item.max_attempts,
+    }
+    if include_movie and item.movie:
+        resp["movie"] = movie_to_response(item.movie)
+    return resp
+
+
+def enqueue_movie(db: Session, movie_id: int) -> Optional[PosterQueueModel]:
+    """Add a movie to the poster queue if not already present."""
+    existing = db.query(PosterQueueModel).filter(
+        PosterQueueModel.movie_id == movie_id
+    ).first()
+    if existing:
+        return None
+    item = PosterQueueModel(movie_id=movie_id, status="pending")
+    db.add(item)
+    return item
+
+
+@app.post("/poster-queue/backfill", response_model=dict, tags=["Poster Queue"])
+async def backfill_poster_queue(
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Scan for movies missing posters and add them to the queue.
+
+    Finds movies where poster_url is NULL or the placeholder value
+    and adds them to the poster queue if not already present.
+    """
+    movies = db.query(MovieModel.movie_id).filter(
+        (MovieModel.poster_url.is_(None)) | (MovieModel.poster_url == "movie_poster_url.jpeg")
+    ).all()
+
+    added = 0
+    for (movie_id,) in movies:
+        if enqueue_movie(db, movie_id):
+            added += 1
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Concurrent backfill created duplicates; roll back and count what actually got added
+        db.rollback()
+        added = 0
+
+    return {"added": added, "already_queued": len(movies) - added}
+
+
+@app.post("/poster-queue/pop", response_model=Optional[PosterQueueResponse], tags=["Poster Queue"])
+async def pop_poster_queue(
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Atomically claim the next available item from the poster queue.
+
+    Returns the queue item with full movie data, or null if the queue is empty.
+    Items that have been claimed for longer than 10 minutes are considered stale
+    and will be reclaimed.
+    """
+    from datetime import datetime, timedelta
+
+    stale_cutoff = datetime.utcnow() - timedelta(minutes=STALE_CLAIM_MINUTES)
+
+    # Use with_for_update to lock the row for atomic claim
+    item = db.query(PosterQueueModel).options(
+        joinedload(PosterQueueModel.movie)
+    ).filter(
+        ((PosterQueueModel.status == "pending") |
+         ((PosterQueueModel.status == "claimed") & (PosterQueueModel.claimed_at < stale_cutoff)))
+    ).order_by(PosterQueueModel.queue_id).with_for_update(skip_locked=True).first()
+
+    if not item:
+        return JSONResponse(content=None, status_code=204)
+
+    item.status = "claimed"
+    item.claimed_at = datetime.utcnow()
+    item.attempt_count += 1
+    db.commit()
+    db.refresh(item)
+
+    return queue_item_to_response(item, include_movie=True)
+
+
+@app.post(
+    "/poster-queue/{queue_id}/complete",
+    response_model=PosterQueueResponse,
+    tags=["Poster Queue"],
+)
+async def complete_poster_queue_item(
+    queue_id: int,
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Mark a poster queue item as completed.
+    """
+    from datetime import datetime
+
+    item = db.query(PosterQueueModel).filter(
+        PosterQueueModel.queue_id == queue_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    item.status = "completed"
+    item.completed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(item)
+
+    return queue_item_to_response(item)
+
+
+@app.post(
+    "/poster-queue/{queue_id}/fail",
+    response_model=PosterQueueResponse,
+    tags=["Poster Queue"],
+)
+async def fail_poster_queue_item(
+    queue_id: int,
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """
+    Report a poster generation failure.
+
+    If the item has remaining attempts, it goes back to pending.
+    Otherwise it is marked as failed permanently.
+    """
+    item = db.query(PosterQueueModel).filter(
+        PosterQueueModel.queue_id == queue_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found")
+
+    if item.attempt_count >= item.max_attempts:
+        item.status = "failed"
+    else:
+        item.status = "pending"
+        item.claimed_at = None
+
+    db.commit()
+    db.refresh(item)
+
+    return queue_item_to_response(item)
+
+
+@app.get("/poster-queue/stats", response_model=PosterQueueStatsResponse, tags=["Poster Queue"])
+async def poster_queue_stats(db: Session = Depends(get_db)):
+    """
+    Get poster queue statistics.
+    """
+    counts = {}
+    for status in ("pending", "claimed", "completed", "failed"):
+        counts[status] = db.query(func.count(PosterQueueModel.queue_id)).filter(  # pylint: disable=not-callable
+            PosterQueueModel.status == status
+        ).scalar() or 0
+
+    return PosterQueueStatsResponse(
+        pending=counts["pending"],
+        claimed=counts["claimed"],
+        completed=counts["completed"],
+        failed=counts["failed"],
+        total=sum(counts.values()),
+    )
 
 # Mount static files for image hosting
 images_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images")

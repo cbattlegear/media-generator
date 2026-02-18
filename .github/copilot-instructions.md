@@ -26,18 +26,28 @@ All model classes share the same interface: `system_prompt`, `user_prompt`, `gen
 - **`lib/generator.py`** — `MediaGenerator` class orchestrates the full pipeline. Returns `GenerationResult` / `GenerationStats` dataclasses.
 - **`lib/process_helper.py`** — Shared utilities: logging (with colored console output), JSON extraction from AI completions, output path generation (`outputs/YYYY/MM/DD/`), process ID creation.
 - **`api/`** — FastAPI REST API (`api/main.py`) with SQLAlchemy ORM models (`api/models.py`). Stores movies in SQL Server (schema in `db-init/init-db.sql`). Uses `slowapi` for rate limiting and `X-Api-Key` header auth for write operations.
-- **`batch_poster_generate.py`** — Standalone batch script that queries the API for movies missing posters, generates prompts via the text model, sends them to InvokeAI (FLUX model) for image generation, and uploads results back to the API.
+- **`batch_poster_generate.py`** — Batch worker that pops items from the poster queue, generates prompts via the text model, sends them to InvokeAI (FLUX model) for image generation, and uploads results. Multiple workers can run concurrently on different machines without conflicts.
 
 ### Database
 
-SQL Server with tables: `movies`, `genres`, `actors`, `directors`, `criticreviews`, `actorstomoviesjoin`, `directorstomoviesjoin`. Schema is initialized by `db-init/init-db.sql`. Docker Compose (`docker-compose.yml`) runs SQL Server + the API.
+SQL Server with tables: `movies`, `genres`, `actors`, `directors`, `criticreviews`, `actorstomoviesjoin`, `directorstomoviesjoin`, `posterqueue`. Schema is initialized by `db-init/init-db.sql`. Docker Compose (`docker-compose.yml`) runs SQL Server + the API.
+
+### Poster queue
+
+The `posterqueue` table implements a work queue for poster generation that supports multiple concurrent workers:
+- **Statuses**: `pending` → `claimed` → `completed` or `failed`
+- **Atomic pop**: `POST /poster-queue/pop` uses `SELECT ... FOR UPDATE SKIP LOCKED` to claim items without conflicts
+- **Stale recovery**: Claimed items with no response for 10+ minutes are automatically reclaimed by the next pop
+- **Retry**: Failed items retry up to 3 attempts before being marked permanently failed
+- **Backfill**: `POST /poster-queue/backfill` scans for movies missing posters and adds them to the queue
+- **Auto-enqueue**: Movies generated via `POST /generate` are automatically added to the queue
 
 ### Image handling
 
 - Poster images are stored in the `/images/` directory.
 - **Thumbnails**: Each poster has a `_thumb.webp` variant at 512×896 quality 80 (e.g., `movie_42.png` original → `movie_42_thumb.webp` thumbnail). The `poster_url` DB field points to the thumbnail.
 - The `PUT /movies/{movie_id}/poster` API endpoint accepts a required `file` (original) and optional `thumbnail` upload. When a thumbnail is provided, `poster_url` points to it.
-- The batch poster job (`batch_poster_generate.py`) creates thumbnails automatically with Pillow before uploading both files.
+- The batch poster job creates thumbnails automatically with Pillow before uploading both files.
 - `convert_thumbnails.py` is a one-time migration script that converts existing images to thumbnails and updates the DB. Can run standalone or via `Dockerfile.convert`.
 
 ## Build & Run

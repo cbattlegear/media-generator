@@ -23,7 +23,6 @@ python batch_poster_generate.py \
     --media-api "${MEDIA_API_URL:-http://localhost:8000}" \
     --invokeai "${INVOKEAI_URL:-http://invokeai:9090}" \
     --api-key "${API_KEY}" \
-    --limit "${BATCH_LIMIT:-100}" \
     ${VERBOSE:+--verbose}
 
 exit_code=$?
