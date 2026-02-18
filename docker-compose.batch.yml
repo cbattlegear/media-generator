@@ -23,7 +23,7 @@ services:
               count: 1
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9090/api/v1/app/version"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9090/api/v1/app/version')"]
       interval: 10s
       timeout: 5s
       retries: 30
