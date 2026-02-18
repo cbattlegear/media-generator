@@ -38,143 +38,159 @@ DEFAULT_INVOKEAI_URL = "http://localhost:9090"
 POLL_INTERVAL = 5
 GENERATION_TIMEOUT = 300
 
-# The static InvokeAI FLUX graph structure.
-# Only the prompt and seed are injected via the "data" array.
-INVOKEAI_GRAPH = {
-    "id": "flux_graph:DHMtzyKWJZ",
-    "nodes": {
-        "positive_prompt:XSchZlBWDn": {
-            "id": "positive_prompt:XSchZlBWDn",
-            "type": "string",
-            "is_intermediate": True,
-            "use_cache": True
-        },
-        "seed:6h9cteOn1T": {
-            "id": "seed:6h9cteOn1T",
-            "type": "integer",
-            "is_intermediate": True,
-            "use_cache": True
-        },
-        "flux2_klein_model_loader:g6iI22rxsU": {
-            "type": "flux2_klein_model_loader",
-            "id": "flux2_klein_model_loader:g6iI22rxsU",
-            "model": {
-                "key": "c3ff1051-1fc8-415f-b876-b6788ec0397a",
-                "hash": "blake3:c3ee838d71d99497db01fae6f304eafd9e734e935f3b783e968d50febb56be2c",
-                "path": "c3ff1051-1fc8-415f-b876-b6788ec0397a/flux-2-klein-4b-Q4_K_M.gguf",
-                "file_size": 2604311104,
-                "name": "FLUX.2 Klein 4B (GGUF Q4)",
-                "description": "FLUX.2 Klein 4B GGUF Q4_K_M quantized - runs on 6-8GB VRAM. Installs with VAE and Qwen3 4B encoder. ~2.6GB",
-                "source": "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q4_K_M.gguf",
-                "source_type": "url",
-                "source_api_response": None,
-                "cover_image": None,
-                "type": "main",
-                "trigger_phrases": None,
-                "default_settings": {
-                    "vae": None,
-                    "vae_precision": None,
-                    "scheduler": None,
-                    "steps": 4,
-                    "cfg_scale": 1,
-                    "cfg_rescale_multiplier": None,
-                    "width": 1024,
-                    "height": 1792,
-                    "guidance": None,
-                    "cpu_only": None
-                },
-                "config_path": None,
-                "base": "flux2",
-                "format": "gguf_quantized",
-                "variant": "klein_4b"
+# Model names to look up from InvokeAI
+MAIN_MODEL_NAME = "FLUX.2 Klein 4B (GGUF Q4)"
+VAE_MODEL_NAME = "FLUX.2 VAE"
+ENCODER_MODEL_NAME = "FLUX.2 Klein Qwen3 4B Encoder"
+
+# Image dimensions for poster generation (portrait aspect ratio)
+IMAGE_WIDTH = 1024
+IMAGE_HEIGHT = 1792
+
+
+def _random_id(length=10):
+    """Generate a random alphanumeric ID for graph node suffixes."""
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    return "".join(random.choice(chars) for _ in range(length))
+
+
+def lookup_invokeai_models(invokeai_url):
+    """
+    Query InvokeAI for installed models and return the three required model records.
+
+    Returns a dict with keys: 'main', 'vae', 'qwen3_encoder'.
+    """
+    resp = requests.get(f"{invokeai_url}/api/v2/models/")
+    resp.raise_for_status()
+    data = resp.json()
+    models = data.get("models", data) if isinstance(data, dict) else data
+
+    found = {}
+    for model in models:
+        name = model.get("name", "")
+        if name == MAIN_MODEL_NAME:
+            found["main"] = model
+        elif name == VAE_MODEL_NAME:
+            found["vae"] = model
+        elif name == ENCODER_MODEL_NAME:
+            found["qwen3_encoder"] = model
+
+    missing = [n for role, n in [("main", MAIN_MODEL_NAME), ("vae", VAE_MODEL_NAME), ("qwen3_encoder", ENCODER_MODEL_NAME)] if role not in found]
+    if missing:
+        raise RuntimeError(f"Required models not found in InvokeAI: {missing}")
+
+    return found
+
+
+def _model_ref(model, fields=("key", "hash", "name", "base", "type")):
+    """Extract a minimal model reference dict for use in graph nodes."""
+    return {k: model.get(k) for k in fields}
+
+
+def build_invokeai_graph(models):
+    """
+    Build the InvokeAI FLUX graph dynamically using model records
+    looked up from the running InvokeAI instance.
+    """
+    main_model = models["main"]
+    vae_model = models["vae"]
+    encoder_model = models["qwen3_encoder"]
+
+    # Generate unique node IDs
+    graph_id = f"flux_graph:{_random_id()}"
+    prompt_id = f"positive_prompt:{_random_id()}"
+    seed_id = f"seed:{_random_id()}"
+    loader_id = f"flux2_klein_model_loader:{_random_id()}"
+    encoder_id = f"flux2_klein_text_encoder:{_random_id()}"
+    denoise_id = f"flux2_denoise:{_random_id()}"
+    metadata_id = f"core_metadata:{_random_id()}"
+    output_id = f"canvas_output:{_random_id()}"
+
+    # Full model record for the loader node
+    main_model_full = {
+        "key": main_model["key"],
+        "hash": main_model["hash"],
+        "path": main_model.get("path", ""),
+        "file_size": main_model.get("file_size", 0),
+        "name": main_model["name"],
+        "description": main_model.get("description", ""),
+        "source": main_model.get("source", ""),
+        "source_type": main_model.get("source_type", "url"),
+        "source_api_response": main_model.get("source_api_response"),
+        "cover_image": main_model.get("cover_image"),
+        "type": "main",
+        "trigger_phrases": main_model.get("trigger_phrases"),
+        "default_settings": main_model.get("default_settings", {}),
+        "config_path": main_model.get("config_path"),
+        "base": "flux2",
+        "format": main_model.get("format", "gguf_quantized"),
+        "variant": main_model.get("variant", "klein_4b"),
+    }
+
+    vae_ref = _model_ref(vae_model)
+    encoder_ref = _model_ref(encoder_model)
+
+    graph = {
+        "id": graph_id,
+        "nodes": {
+            prompt_id: {
+                "id": prompt_id, "type": "string",
+                "is_intermediate": True, "use_cache": True
             },
-            "vae_model": {
-                "key": "19babdab-c41c-4b45-a217-e4dd484a2fd2",
-                "hash": "blake3:531855de70db993d0f6181f82cde27d15411d58b7ffa3b2fdce2b9434c0173c2",
-                "name": "FLUX.2 VAE",
-                "base": "flux2",
-                "type": "vae"
+            seed_id: {
+                "id": seed_id, "type": "integer",
+                "is_intermediate": True, "use_cache": True
             },
-            "qwen3_encoder_model": {
-                "key": "90034a7d-35d8-4517-a19d-90c3b99193b0",
-                "hash": "blake3:af5840e6770dc99f678e69867949c8b9264835915eb82a990e940fa6e4fa6c81",
-                "name": "FLUX.2 Klein Qwen3 4B Encoder",
-                "base": "any",
-                "type": "qwen3_encoder"
+            loader_id: {
+                "type": "flux2_klein_model_loader", "id": loader_id,
+                "model": main_model_full,
+                "vae_model": vae_ref,
+                "qwen3_encoder_model": encoder_ref,
+                "is_intermediate": True, "use_cache": True
             },
-            "is_intermediate": True,
-            "use_cache": True
+            encoder_id: {
+                "type": "flux2_klein_text_encoder", "id": encoder_id,
+                "is_intermediate": True, "use_cache": True
+            },
+            denoise_id: {
+                "type": "flux2_denoise", "id": denoise_id,
+                "num_steps": 30, "is_intermediate": True, "use_cache": True,
+                "denoising_start": 0, "denoising_end": 1,
+                "width": IMAGE_WIDTH, "height": IMAGE_HEIGHT
+            },
+            metadata_id: {
+                "id": metadata_id, "type": "core_metadata",
+                "is_intermediate": True, "use_cache": True,
+                "model": _model_ref(main_model),
+                "steps": 30,
+                "vae": vae_ref,
+                "qwen3_encoder": encoder_ref,
+                "width": IMAGE_WIDTH, "height": IMAGE_HEIGHT,
+                "generation_mode": "flux2_txt2img"
+            },
+            output_id: {
+                "type": "flux2_vae_decode", "id": output_id,
+                "is_intermediate": False, "use_cache": False
+            }
         },
-        "flux2_klein_text_encoder:nmmeJl47fN": {
-            "type": "flux2_klein_text_encoder",
-            "id": "flux2_klein_text_encoder:nmmeJl47fN",
-            "is_intermediate": True,
-            "use_cache": True
-        },
-        "flux2_denoise:cUHCHzGwqi": {
-            "type": "flux2_denoise",
-            "id": "flux2_denoise:cUHCHzGwqi",
-            "num_steps": 30,
-            "is_intermediate": True,
-            "use_cache": True,
-            "denoising_start": 0,
-            "denoising_end": 1,
-            "width": 1024,
-            "height": 1024
-        },
-        "core_metadata:iUZ4nb2S38": {
-            "id": "core_metadata:iUZ4nb2S38",
-            "type": "core_metadata",
-            "is_intermediate": True,
-            "use_cache": True,
-            "model": {
-                "key": "c3ff1051-1fc8-415f-b876-b6788ec0397a",
-                "hash": "blake3:c3ee838d71d99497db01fae6f304eafd9e734e935f3b783e968d50febb56be2c",
-                "name": "FLUX.2 Klein 4B (GGUF Q4)",
-                "base": "flux2",
-                "type": "main"
-            },
-            "steps": 30,
-            "vae": {
-                "key": "19babdab-c41c-4b45-a217-e4dd484a2fd2",
-                "hash": "blake3:531855de70db993d0f6181f82cde27d15411d58b7ffa3b2fdce2b9434c0173c2",
-                "name": "FLUX.2 VAE",
-                "base": "flux2",
-                "type": "vae"
-            },
-            "qwen3_encoder": {
-                "key": "90034a7d-35d8-4517-a19d-90c3b99193b0",
-                "hash": "blake3:af5840e6770dc99f678e69867949c8b9264835915eb82a990e940fa6e4fa6c81",
-                "name": "FLUX.2 Klein Qwen3 4B Encoder",
-                "base": "any",
-                "type": "qwen3_encoder"
-            },
-            "width": 1024,
-            "height": 1024,
-            "generation_mode": "flux2_txt2img"
-        },
-        "canvas_output:Z16pWr3QXH": {
-            "type": "flux2_vae_decode",
-            "id": "canvas_output:Z16pWr3QXH",
-            "is_intermediate": False,
-            "use_cache": False
-        }
-    },
-    "edges": [
-        {"source": {"node_id": "flux2_klein_model_loader:g6iI22rxsU", "field": "qwen3_encoder"}, "destination": {"node_id": "flux2_klein_text_encoder:nmmeJl47fN", "field": "qwen3_encoder"}},
-        {"source": {"node_id": "flux2_klein_model_loader:g6iI22rxsU", "field": "max_seq_len"}, "destination": {"node_id": "flux2_klein_text_encoder:nmmeJl47fN", "field": "max_seq_len"}},
-        {"source": {"node_id": "flux2_klein_model_loader:g6iI22rxsU", "field": "transformer"}, "destination": {"node_id": "flux2_denoise:cUHCHzGwqi", "field": "transformer"}},
-        {"source": {"node_id": "flux2_klein_model_loader:g6iI22rxsU", "field": "vae"}, "destination": {"node_id": "flux2_denoise:cUHCHzGwqi", "field": "vae"}},
-        {"source": {"node_id": "flux2_klein_model_loader:g6iI22rxsU", "field": "vae"}, "destination": {"node_id": "canvas_output:Z16pWr3QXH", "field": "vae"}},
-        {"source": {"node_id": "positive_prompt:XSchZlBWDn", "field": "value"}, "destination": {"node_id": "flux2_klein_text_encoder:nmmeJl47fN", "field": "prompt"}},
-        {"source": {"node_id": "flux2_klein_text_encoder:nmmeJl47fN", "field": "conditioning"}, "destination": {"node_id": "flux2_denoise:cUHCHzGwqi", "field": "positive_text_conditioning"}},
-        {"source": {"node_id": "seed:6h9cteOn1T", "field": "value"}, "destination": {"node_id": "flux2_denoise:cUHCHzGwqi", "field": "seed"}},
-        {"source": {"node_id": "flux2_denoise:cUHCHzGwqi", "field": "latents"}, "destination": {"node_id": "canvas_output:Z16pWr3QXH", "field": "latents"}},
-        {"source": {"node_id": "seed:6h9cteOn1T", "field": "value"}, "destination": {"node_id": "core_metadata:iUZ4nb2S38", "field": "seed"}},
-        {"source": {"node_id": "positive_prompt:XSchZlBWDn", "field": "value"}, "destination": {"node_id": "core_metadata:iUZ4nb2S38", "field": "positive_prompt"}},
-        {"source": {"node_id": "core_metadata:iUZ4nb2S38", "field": "metadata"}, "destination": {"node_id": "canvas_output:Z16pWr3QXH", "field": "metadata"}}
-    ]
-}
+        "edges": [
+            {"source": {"node_id": loader_id, "field": "qwen3_encoder"}, "destination": {"node_id": encoder_id, "field": "qwen3_encoder"}},
+            {"source": {"node_id": loader_id, "field": "max_seq_len"}, "destination": {"node_id": encoder_id, "field": "max_seq_len"}},
+            {"source": {"node_id": loader_id, "field": "transformer"}, "destination": {"node_id": denoise_id, "field": "transformer"}},
+            {"source": {"node_id": loader_id, "field": "vae"}, "destination": {"node_id": denoise_id, "field": "vae"}},
+            {"source": {"node_id": loader_id, "field": "vae"}, "destination": {"node_id": output_id, "field": "vae"}},
+            {"source": {"node_id": prompt_id, "field": "value"}, "destination": {"node_id": encoder_id, "field": "prompt"}},
+            {"source": {"node_id": encoder_id, "field": "conditioning"}, "destination": {"node_id": denoise_id, "field": "positive_text_conditioning"}},
+            {"source": {"node_id": seed_id, "field": "value"}, "destination": {"node_id": denoise_id, "field": "seed"}},
+            {"source": {"node_id": denoise_id, "field": "latents"}, "destination": {"node_id": output_id, "field": "latents"}},
+            {"source": {"node_id": seed_id, "field": "value"}, "destination": {"node_id": metadata_id, "field": "seed"}},
+            {"source": {"node_id": prompt_id, "field": "value"}, "destination": {"node_id": metadata_id, "field": "positive_prompt"}},
+            {"source": {"node_id": metadata_id, "field": "metadata"}, "destination": {"node_id": output_id, "field": "metadata"}}
+        ]
+    }
+
+    # Return graph and the node IDs needed for the data array
+    return graph, seed_id, prompt_id
 
 
 def log(message, level="info"):
@@ -259,7 +275,7 @@ def build_image_prompt(movie, templates_base, verbose=False):
     return prompt
 
 
-def build_invokeai_payload(prompt, seed=None):
+def build_invokeai_payload(graph, seed_id, prompt_id, prompt, seed=None):
     """Build the InvokeAI enqueue_batch request body."""
     if seed is None:
         seed = random.randint(0, 2**32 - 1)
@@ -267,11 +283,11 @@ def build_invokeai_payload(prompt, seed=None):
     return {
         "prepend": False,
         "batch": {
-            "graph": INVOKEAI_GRAPH,
+            "graph": graph,
             "runs": 1,
             "data": [
-                [{"node_path": "seed:6h9cteOn1T", "field_name": "value", "items": [seed]}],
-                [{"node_path": "positive_prompt:XSchZlBWDn", "field_name": "value", "items": [prompt]}]
+                [{"node_path": seed_id, "field_name": "value", "items": [seed]}],
+                [{"node_path": prompt_id, "field_name": "value", "items": [prompt]}]
             ],
             "origin": "generate",
             "destination": "generate"
@@ -279,9 +295,9 @@ def build_invokeai_payload(prompt, seed=None):
     }
 
 
-def enqueue_generation(invokeai_url, prompt, seed=None):
+def enqueue_generation(invokeai_url, graph, seed_id, prompt_id, prompt, seed=None):
     """Enqueue an image generation batch in InvokeAI."""
-    payload = build_invokeai_payload(prompt, seed)
+    payload = build_invokeai_payload(graph, seed_id, prompt_id, prompt, seed)
     resp = requests.post(
         f"{invokeai_url}/api/v1/queue/default/enqueue_batch",
         json=payload
@@ -344,7 +360,7 @@ def upload_poster(api_url, movie_id, image_data, api_key):
     return resp.json()
 
 
-def process_movie(movie, api_url, invokeai_url, templates_base, api_key, verbose=False):
+def process_movie(movie, api_url, invokeai_url, templates_base, api_key, graph, seed_id, prompt_id, verbose=False):
     """Generate and upload a poster for a single movie."""
     movie_id = movie["movie_id"]
     title = movie["title"]
@@ -366,7 +382,7 @@ def process_movie(movie, api_url, invokeai_url, templates_base, api_key, verbose
     # Step 2: Enqueue generation in InvokeAI
     log(f"  Enqueuing image generation in InvokeAI...")
     try:
-        enqueue_result = enqueue_generation(invokeai_url, image_prompt)
+        enqueue_result = enqueue_generation(invokeai_url, graph, seed_id, prompt_id, image_prompt)
         batch_id = enqueue_result.get("batch", {}).get("batch_id")
         if not batch_id:
             log(f"  No batch_id in enqueue response", "error")
@@ -447,6 +463,16 @@ def main():
     print(f"  InvokeAI:  {args.invokeai}")
     print()
 
+    # Look up model keys from InvokeAI
+    log("Looking up models from InvokeAI...")
+    try:
+        models = lookup_invokeai_models(args.invokeai)
+        graph, seed_id, prompt_id = build_invokeai_graph(models)
+        log(f"Models found: {', '.join(m['name'] for m in models.values())}", "success")
+    except Exception as e:
+        log(f"Failed to look up models from InvokeAI: {e}", "error")
+        return 1
+
     # Fetch movies missing posters
     try:
         movies = get_movies_missing_posters(args.media_api, limit=args.limit)
@@ -466,7 +492,7 @@ def main():
 
     for movie in movies:
         try:
-            if process_movie(movie, args.media_api, args.invokeai, templates_base, api_key, args.verbose):
+            if process_movie(movie, args.media_api, args.invokeai, templates_base, api_key, graph, seed_id, prompt_id, args.verbose):
                 success_count += 1
             else:
                 fail_count += 1
