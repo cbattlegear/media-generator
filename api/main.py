@@ -297,6 +297,7 @@ async def health_check(db: Session = Depends(get_db)):
 async def generate_media(
     request: Request,
     generate_request: GenerateRequest,
+    _api_key: None = Depends(verify_api_key),
     db: Session = Depends(get_db)
 ):
     """
