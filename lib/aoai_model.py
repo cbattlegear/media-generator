@@ -50,7 +50,7 @@ class aoaiText(aoaiModel):
                 { "role": "system", "content": self.system_prompt},
                 {"role": "user", "content":self.user_prompt}
             ],
-            max_tokens=600, temperature=self.prompts_temperature)
+            max_completion_tokens=2000)
         
         return response.choices[0].message.content
 
