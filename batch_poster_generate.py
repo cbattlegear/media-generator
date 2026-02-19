@@ -255,7 +255,8 @@ def build_image_prompt(movie, templates_base, verbose=False):
         prompts_json = json.load(f)
 
     system_prompt = random.choice(prompts_json["image_prompt_system"])
-    prompt_template = random.choice(prompts_json["image_prompt"])
+    # This prompt is always static
+    prompt_template = prompts_json["image_prompt"][0]
 
     # Build replacement values from the movie API response
     replacements = {

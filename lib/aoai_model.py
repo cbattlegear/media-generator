@@ -126,6 +126,6 @@ class aoaiVision(aoaiModel):
                         }
                     ] } 
                 ],
-                max_tokens=2000 
+                max_completion_tokens=2000 
             )
         return response.choices[0].message.content
