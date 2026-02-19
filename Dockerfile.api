@@ -43,5 +43,5 @@ VOLUME /app/outputs
 # Expose the API port
 EXPOSE 8000
 
-# Run the FastAPI server
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the FastAPI server with gunicorn (multi-worker production mode)
+CMD ["gunicorn", "-c", "api/gunicorn_conf.py", "api.main:app"]

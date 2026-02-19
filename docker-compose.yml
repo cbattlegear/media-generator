@@ -62,6 +62,10 @@ services:
       - AZURE_OPENAI_VISION_API_VERSION=${AZURE_OPENAI_VISION_API_VERSION}
       - LOCAL_MODEL_NAME=${LOCAL_MODEL_NAME}
       - API_KEYS=${API_KEYS}
+      # Gunicorn worker settings
+      - WEB_WORKERS=${WEB_WORKERS:-4}
+      - WORKER_TIMEOUT=${WORKER_TIMEOUT:-120}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./outputs:/app/outputs
       - ./images:/app/images
