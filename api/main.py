@@ -539,6 +539,42 @@ async def get_top_directors(db: Session = Depends(get_db)):
     return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count} for d in top_directors]
 
 
+@app.get("/actors/{actor_id}/movies", response_model=List[MovieResponse], tags=["Movies"])
+async def get_movies_by_actor(actor_id: int, db: Session = Depends(get_db)):
+    """
+    Get all movies featuring a specific actor.
+    """
+    actor = db.query(ActorModel).filter(ActorModel.actor_id == actor_id).first()
+    if not actor:
+        raise HTTPException(status_code=404, detail="Actor not found")
+
+    return [movie_to_response(m) for m in actor.movies]
+
+
+@app.get("/directors/{director_id}/movies", response_model=List[MovieResponse], tags=["Movies"])
+async def get_movies_by_director(director_id: int, db: Session = Depends(get_db)):
+    """
+    Get all movies by a specific director.
+    """
+    director = db.query(DirectorModel).filter(DirectorModel.director_id == director_id).first()
+    if not director:
+        raise HTTPException(status_code=404, detail="Director not found")
+
+    return [movie_to_response(m) for m in director.movies]
+
+
+@app.get("/genres/{genre_id}/movies", response_model=List[MovieResponse], tags=["Movies"])
+async def get_movies_by_genre(genre_id: int, db: Session = Depends(get_db)):
+    """
+    Get all movies in a specific genre.
+    """
+    genre = db.query(GenreModel).filter(GenreModel.genre_id == genre_id).first()
+    if not genre:
+        raise HTTPException(status_code=404, detail="Genre not found")
+
+    return [movie_to_response(m) for m in genre.movies]
+
+
 @app.get("/movies/missing-posters", response_model=List[MovieResponse], tags=["Movies"])
 async def get_movies_missing_posters(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
