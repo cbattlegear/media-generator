@@ -19,7 +19,7 @@ import ollama
 import requests
 
 DEFAULT_API_URL = "https://api.battlecabbage.com"
-DEFAULT_MODEL = os.getenv("LOCAL_MODEL_NAME", "phi3.5")
+DEFAULT_MODEL = os.getenv("LOCAL_MODEL_NAME", "gpt-oss")
 OUTPUT_DIR = "actor_image_prompt"
 
 
