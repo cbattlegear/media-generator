@@ -563,6 +563,15 @@ async def get_top_directors(db: Session = Depends(get_db)):
     return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count} for d in top_directors]
 
 
+@app.get("/actors/{actor_id}", response_model=ActorResponse, tags=["Lookup"])
+async def get_actor(actor_id: int, db: Session = Depends(get_db)):
+    """Get a single actor by ID."""
+    actor = db.query(ActorModel).filter(ActorModel.actor_id == actor_id).first()
+    if not actor:
+        raise HTTPException(status_code=404, detail="Actor not found")
+    return ActorResponse(actor_id=actor.actor_id, actor=actor.actor, image_url=f"/images/actors/{actor.actor_id}.png")
+
+
 @app.get("/actors/{actor_id}/movies", response_model=List[MovieResponse], tags=["Movies"])
 async def get_movies_by_actor(actor_id: int, db: Session = Depends(get_db)):
     """
@@ -573,6 +582,15 @@ async def get_movies_by_actor(actor_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Actor not found")
 
     return [movie_to_response(m) for m in actor.movies]
+
+
+@app.get("/directors/{director_id}", response_model=DirectorResponse, tags=["Lookup"])
+async def get_director(director_id: int, db: Session = Depends(get_db)):
+    """Get a single director by ID."""
+    director = db.query(DirectorModel).filter(DirectorModel.director_id == director_id).first()
+    if not director:
+        raise HTTPException(status_code=404, detail="Director not found")
+    return DirectorResponse(director_id=director.director_id, director=director.director)
 
 
 @app.get("/directors/{director_id}/movies", response_model=List[MovieResponse], tags=["Movies"])
