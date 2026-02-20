@@ -12,3 +12,5 @@ models/*
 backends/*
 
 **/__pycache__/
+
+actor_image_prompt/

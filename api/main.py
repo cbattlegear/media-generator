@@ -17,6 +17,7 @@ import os
 import shutil
 from contextlib import asynccontextmanager
 from datetime import date
+from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
 
@@ -48,6 +49,20 @@ from api.models import (
 
 
 # Pydantic models for API request/response
+class SortBy(str, Enum):
+    """Sortable fields for movie listings."""
+    movie_id = "movie_id"
+    title = "title"
+    release_date = "release_date"
+    popularity_score = "popularity_score"
+
+
+class SortOrder(str, Enum):
+    """Sort direction."""
+    asc = "asc"
+    desc = "desc"
+
+
 class GenerateRequest(BaseModel):
     """Request model for generating media."""
     count: int = Field(default=1, ge=1, le=5, description="Number of media objects to generate (1-5)")
@@ -351,19 +366,27 @@ async def list_movies(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of records to return"),
     genre: Optional[str] = Query(None, description="Filter by genre"),
+    sort_by: SortBy = Query(SortBy.movie_id, description="Field to sort by"),
+    order: SortOrder = Query(SortOrder.desc, description="Sort direction"),
     db: Session = Depends(get_db)
 ):
     """
     List all movies from the database.
     
-    Supports pagination and filtering by genre.
+    Supports pagination, filtering by genre, and sorting.
     """
     query = db.query(MovieModel)
     
     if genre:
         query = query.join(GenreModel).filter(GenreModel.genre.ilike(f"%{genre}%"))
     
-    movies = query.order_by(MovieModel.movie_id.desc()).offset(skip).limit(limit).all()
+    sort_column = getattr(MovieModel, sort_by.value)
+    if order == SortOrder.asc:
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+    
+    movies = query.offset(skip).limit(limit).all()
     
     return [movie_to_response(m) for m in movies]
 
