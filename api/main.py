@@ -93,6 +93,7 @@ class DirectorResponse(BaseModel):
     """Response model for a director."""
     director_id: int
     director: str
+    image_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -279,7 +280,7 @@ def movie_to_response(movie: MovieModel) -> MovieResponse:
         poster_url=movie.poster_url,
         release_date=movie.release_date,
         actors=[ActorResponse(actor_id=a.actor_id, actor=a.actor, image_url=f"/images/actors/{a.actor_id}.png") for a in movie.actors],
-        directors=[DirectorResponse(director_id=d.director_id, director=d.director) for d in movie.directors],
+        directors=[DirectorResponse(director_id=d.director_id, director=d.director, image_url=f"/images/directors/{d.director_id}.png") for d in movie.directors],
         reviews=[
             ReviewResponse(
                 critic_review_id=r.critic_review_id,
@@ -428,7 +429,7 @@ async def list_directors(
 ):
     """List all directors with pagination."""
     directors = db.query(DirectorModel).order_by(DirectorModel.director).offset(skip).limit(limit).all()
-    return [DirectorResponse(director_id=d.director_id, director=d.director) for d in directors]
+    return [DirectorResponse(director_id=d.director_id, director=d.director, image_url=f"/images/directors/{d.director_id}.png") for d in directors]
 
 
 @app.get("/stats", response_model=StatsResponse, tags=["Statistics"])
@@ -590,7 +591,7 @@ async def get_director(director_id: int, db: Session = Depends(get_db)):
     director = db.query(DirectorModel).filter(DirectorModel.director_id == director_id).first()
     if not director:
         raise HTTPException(status_code=404, detail="Director not found")
-    return DirectorResponse(director_id=director.director_id, director=director.director)
+    return DirectorResponse(director_id=director.director_id, director=director.director, image_url=f"/images/directors/{director.director_id}.png")
 
 
 @app.get("/directors/{director_id}/movies", response_model=List[MovieResponse], tags=["Movies"])
