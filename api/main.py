@@ -545,7 +545,7 @@ async def get_top_actors(db: Session = Depends(get_db)):
         ActorModel.actor_id, ActorModel.actor
     ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()  # pylint: disable=not-callable
     
-    return [{"actor_id": a.actor_id, "actor": a.actor, "movie_count": a.movie_count} for a in top_actors]
+    return [{"actor_id": a.actor_id, "actor": a.actor, "movie_count": a.movie_count, "image_url": f"/images/actors/{a.actor_id}.png"} for a in top_actors]
 
 
 @app.get("/directors/top", response_model=List[dict], tags=["Lookup"])
@@ -561,7 +561,7 @@ async def get_top_directors(db: Session = Depends(get_db)):
         DirectorModel.director_id, DirectorModel.director
     ).order_by(func.count(MovieModel.movie_id).desc()).limit(5).all()  # pylint: disable=not-callable
     
-    return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count} for d in top_directors]
+    return [{"director_id": d.director_id, "director": d.director, "movie_count": d.movie_count, "image_url": f"/images/directors/{d.director_id}.png"} for d in top_directors]
 
 
 @app.get("/actors/{actor_id}", response_model=ActorResponse, tags=["Lookup"])
