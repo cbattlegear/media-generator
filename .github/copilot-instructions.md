@@ -101,3 +101,7 @@ Configured in `pyproject.toml`: line length is 100, target Python 3.9+.
 - **Template system**: Prompt templates in `templates/prompts.json` use `{key}` placeholders (not Python f-strings). These are resolved by `media.parseTemplate()` which picks random values from corresponding `templates/{key}.json` files.
 - **Private fields**: Fields prefixed with `_` (e.g., `_process`, `_prompt_file_path`) are excluded from serialization in `to_json()` methods.
 - **Environment config**: All AI model configuration comes from environment variables (see `.example.env`). The `MODEL_TYPE` variable switches between `azure_openai` and `local` backends throughout the codebase.
+
+## Terminal
+
+- Always set the terminal tab title to `media-generator` using `report_intent` or by updating the intent to include the project name.

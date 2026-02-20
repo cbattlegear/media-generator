@@ -83,6 +83,7 @@ class ActorResponse(BaseModel):
     """Response model for an actor."""
     actor_id: int
     actor: str
+    image_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -277,7 +278,7 @@ def movie_to_response(movie: MovieModel) -> MovieResponse:
         genre=movie.genre_rel.genre if movie.genre_rel else None,
         poster_url=movie.poster_url,
         release_date=movie.release_date,
-        actors=[ActorResponse(actor_id=a.actor_id, actor=a.actor) for a in movie.actors],
+        actors=[ActorResponse(actor_id=a.actor_id, actor=a.actor, image_url=f"/images/actors/{a.actor_id}.png") for a in movie.actors],
         directors=[DirectorResponse(director_id=d.director_id, director=d.director) for d in movie.directors],
         reviews=[
             ReviewResponse(
@@ -416,7 +417,7 @@ async def list_actors(
 ):
     """List all actors with pagination."""
     actors = db.query(ActorModel).order_by(ActorModel.actor).offset(skip).limit(limit).all()
-    return [ActorResponse(actor_id=a.actor_id, actor=a.actor) for a in actors]
+    return [ActorResponse(actor_id=a.actor_id, actor=a.actor, image_url=f"/images/actors/{a.actor_id}.png") for a in actors]
 
 
 @app.get("/directors", response_model=List[DirectorResponse], tags=["Lookup"])
