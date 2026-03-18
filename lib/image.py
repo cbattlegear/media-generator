@@ -12,6 +12,7 @@ import random
 import lib.media as media
 from lib.aoai_model import aoaiText, aoaiImage, aoaiVision
 from lib.ollama_model import ollamaText, ollamaImage, ollamaVision
+from lib.local_openai_model import localOpenAIText, localOpenAIImage, localOpenAIVision
 
 # Class for the image object
 class image:
@@ -89,6 +90,8 @@ class image:
         # Create a text model object
         if self.media_object.model_type == "azure_openai":
             text_model = aoaiText()
+        elif self.media_object.model_type == "local_openai":
+            text_model = localOpenAIText()
         else:
             text_model = ollamaText()
         
@@ -124,6 +127,8 @@ class image:
 
         if self.media_object.model_type == "azure_openai":
             image_model = aoaiImage()
+        elif self.media_object.model_type == "local_openai":
+            image_model = localOpenAIImage()
         else:
             image_model = ollamaImage()
 
@@ -190,6 +195,8 @@ class image:
 
         if self.media_object.model_type == "azure_openai":
             vision_model = aoaiVision()
+        elif self.media_object.model_type == "local_openai":
+            vision_model = localOpenAIVision()
         else:
             vision_model = ollamaVision()
 

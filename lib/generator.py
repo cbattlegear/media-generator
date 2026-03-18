@@ -115,7 +115,7 @@ class MediaGenerator:
         self._process.envCheck("MODEL_TYPE")
         model_type = os.getenv("MODEL_TYPE", "").lower()
         
-        if model_type != "azure_openai":
+        if model_type == "azure_openai":
             self._process.envCheck("AZURE_OPENAI_TEXT_ENDPOINT_KEY")
             self._process.envCheck("AZURE_OPENAI_TEXT_API_VERSION")
             self._process.envCheck("AZURE_OPENAI_TEXT_ENDPOINT")
@@ -128,7 +128,10 @@ class MediaGenerator:
             self._process.envCheck("AZURE_OPENAI_VISION_ENDPOINT_KEY")
             self._process.envCheck("AZURE_OPENAI_VISION_DEPLOYMENT_NAME")
             self._process.envCheck("AZURE_OPENAI_VISION_API_VERSION")
-        elif model_type != "local":
+        elif model_type == "local_openai":
+            self._process.envCheck("LOCAL_OPENAI_ENDPOINT")
+            self._process.envCheck("LOCAL_OPENAI_TEXT_MODEL")
+        elif model_type == "local":
             self._process.envCheck("LOCAL_MODEL_NAME")
     
     def _validate_setup(self) -> bool:

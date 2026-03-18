@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib.aoai_model import aoaiText
 from lib.ollama_model import ollamaText
+from lib.local_openai_model import localOpenAIText
 from lib.process_helper import processHelper
 
 # Defaults
@@ -285,6 +286,8 @@ def build_image_prompt(movie, templates_base, verbose=False):
     model_type = os.getenv("MODEL_TYPE", "").lower()
     if model_type == "azure_openai":
         text_model = aoaiText()
+    elif model_type == "local_openai":
+        text_model = localOpenAIText()
     else:
         text_model = ollamaText()
 

@@ -7,6 +7,7 @@ import traceback
 from lib.process_helper import processHelper
 from lib.aoai_model import aoaiText
 from lib.ollama_model import ollamaText
+from lib.local_openai_model import localOpenAIText
 
 
 
@@ -122,6 +123,8 @@ class media:
         # Create a text model object
         if self.model_type == "azure_openai":
             text_model = aoaiText()
+        elif self.model_type == "local_openai":
+            text_model = localOpenAIText()
         else:
             text_model = ollamaText()
 

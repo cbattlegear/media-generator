@@ -5,6 +5,7 @@ import traceback
 import lib.media as media
 from lib.aoai_model import aoaiText
 from lib.ollama_model import ollamaText
+from lib.local_openai_model import localOpenAIText
 
 
 # Class for a critic review
@@ -57,6 +58,8 @@ class criticReview:
         # Create a text model object
         if self.media_object.model_type == "azure_openai":
             text_model = aoaiText()
+        elif self.media_object.model_type == "local_openai":
+            text_model = localOpenAIText()
         else:
             text_model = ollamaText()
 
