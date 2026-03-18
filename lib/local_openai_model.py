@@ -44,6 +44,7 @@ class localOpenAIText(localOpenAIModel):
                 {"role": "user", "content": self.user_prompt},
             ],
             max_completion_tokens=2000,
+            response_format={"type": "json_object"},
         )
 
         return response.choices[0].message.content
@@ -110,5 +111,6 @@ class localOpenAIVision(localOpenAIModel):
                 },
             ],
             max_completion_tokens=2000,
+            response_format={"type": "json_object"},
         )
         return response.choices[0].message.content
