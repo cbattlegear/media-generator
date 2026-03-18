@@ -33,6 +33,8 @@ services:
     image: vllm/vllm-openai:latest
     networks:
       - image-gen
+    environment:
+      - VLLM_API_KEY=${LOCAL_OPENAI_API_KEY:-no-key-required}
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface
     command: >
