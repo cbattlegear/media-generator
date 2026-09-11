@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     apt-transport-https \
     unixodbc \
-    unixodbc-dev
+    unixodbc-dev \
+    ffmpeg
 
 # Add Microsoft repository and install ODBC driver
 RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \

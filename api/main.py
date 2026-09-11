@@ -15,13 +15,14 @@ import random
 import sys
 import os
 import shutil
+import logging
 from contextlib import asynccontextmanager
 from datetime import date
 from enum import Enum
 from typing import Optional, List
 from decimal import Decimal
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, UploadFile, File, Header
+from fastapi import APIRouter, FastAPI, HTTPException, Depends, Query, Request, UploadFile, File, Header
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -40,6 +41,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from lib import MediaGenerator
+from api import trailers
 from api.models import (
     MovieModel, GenreModel, ActorModel, DirectorModel, CriticReviewModel,
     PosterQueueModel,
@@ -110,6 +112,7 @@ class MovieResponse(BaseModel):
     popularity_score: Optional[float] = None
     genre: Optional[str] = None
     poster_url: Optional[str] = None
+    trailer_url: Optional[str] = None
     release_date: Optional[date] = None
     actors: List[ActorResponse] = []
     directors: List[DirectorResponse] = []
@@ -278,6 +281,7 @@ def movie_to_response(movie: MovieModel) -> MovieResponse:
         popularity_score=float(movie.popularity_score) if movie.popularity_score else None,
         genre=movie.genre_rel.genre if movie.genre_rel else None,
         poster_url=movie.poster_url,
+        trailer_url=movie.trailer_url,
         release_date=movie.release_date,
         actors=[ActorResponse(actor_id=a.actor_id, actor=a.actor, image_url=f"/images/actors/{a.actor_id}.png") for a in movie.actors],
         directors=[DirectorResponse(director_id=d.director_id, director=d.director, image_url=f"/images/directors/{d.director_id}.png") for d in movie.directors],
@@ -711,6 +715,41 @@ async def upload_movie_poster(
     return movie_to_response(movie)
 
 
+trailer_router = APIRouter(route_class=trailers.TrailerUploadRoute)
+
+
+@trailer_router.put("/movies/{movie_id}/trailer", response_model=MovieResponse, tags=["Movies"])
+def upload_movie_trailer(
+    movie_id: int,
+    file: UploadFile = File(..., description="MP4 trailer video (250 MiB default limit)"),
+    _api_key: None = Depends(verify_api_key),
+    db: Session = Depends(get_db),
+):
+    """Upload an MP4 trailer and update its public URL after validation."""
+    movie = db.query(MovieModel).filter(MovieModel.movie_id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found")
+
+    try:
+        with trailers.store_trailer(file, movie_id) as trailer_url:
+            movie.trailer_url = trailer_url
+            response = movie_to_response(movie)
+            db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logging.getLogger(__name__).exception("Failed to save trailer URL for movie %s", movie_id)
+        raise HTTPException(status_code=500, detail="Failed to save trailer URL") from exc
+    except OSError as exc:
+        db.rollback()
+        logging.getLogger(__name__).exception("Failed to store trailer for movie %s", movie_id)
+        raise HTTPException(status_code=500, detail="Failed to store trailer") from exc
+
+    return response
+
+
+app.include_router(trailer_router)
+
+
 @app.get("/movies/{movie_id}", response_model=MovieResponse, tags=["Movies"])
 async def get_movie(movie_id: int, db: Session = Depends(get_db)):
     """
@@ -942,6 +981,14 @@ async def poster_queue_stats(
 images_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images")
 if os.path.exists(images_dir):
     app.mount("/images", StaticFiles(directory=images_dir), name="images")
+
+# Only completed, validated videos are publicly accessible.
+trailers.PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/trailers",
+    trailers.TrailerStaticFiles(directory=str(trailers.PUBLIC_DIR)),
+    name="trailers",
+)
 
 
 if __name__ == "__main__":

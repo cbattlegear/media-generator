@@ -32,7 +32,9 @@ urllib3>=2.2.2
 ollama>=0.6.1
 
 # Web API dependencies
-fastapi>=0.115.0
+fastapi>=0.121.0
+# Includes byte-range video responses and fixes for Range-header parsing.
+starlette>=0.49.1
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.9
 sqlalchemy>=2.0.0
