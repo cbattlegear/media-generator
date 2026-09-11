@@ -8,6 +8,9 @@ outputs/*.log
 images/*
 !images/.folder
 
+# Uploaded trailers and private upload staging files
+trailers/
+
 models/*
 backends/*
 

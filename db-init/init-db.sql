@@ -38,10 +38,18 @@ BEGIN
         [popularity_score] [decimal](18, 2) NULL,
         [genre_id] [int] NOT NULL,
         [poster_url] [nvarchar](500) NULL,
+        [trailer_url] [nvarchar](500) NULL,
         [release_date] [date] NOT NULL,
         CONSTRAINT [PK_movies] PRIMARY KEY CLUSTERED ([movie_id] ASC),
         CONSTRAINT [FK_movies_genres] FOREIGN KEY([genre_id]) REFERENCES [dbo].[genres] ([genre_id])
     );
+END
+GO
+
+-- Upgrade databases initialized before trailer hosting was added.
+IF COL_LENGTH(N'dbo.movies', N'trailer_url') IS NULL
+BEGIN
+    ALTER TABLE [dbo].[movies] ADD [trailer_url] [nvarchar](500) NULL;
 END
 GO
 

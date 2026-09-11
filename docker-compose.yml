@@ -69,6 +69,8 @@ services:
       - LOCAL_OPENAI_VISION_MODEL=${LOCAL_OPENAI_VISION_MODEL}
       - LOCAL_OPENAI_VISION_ENDPOINT=${LOCAL_OPENAI_VISION_ENDPOINT}
       - API_KEYS=${API_KEYS}
+      # Per-file trailer upload limit (MiB)
+      - TRAILER_MAX_SIZE_MIB=${TRAILER_MAX_SIZE_MIB:-250}
       # Gunicorn worker settings
       - WEB_WORKERS=${WEB_WORKERS:-4}
       - WORKER_TIMEOUT=${WORKER_TIMEOUT:-120}
@@ -76,6 +78,7 @@ services:
     volumes:
       - ./outputs:/app/outputs
       - ./images:/app/images
+      - ./trailers:/app/trailers
     depends_on:
       db:
         condition: service_healthy

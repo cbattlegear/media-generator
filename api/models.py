@@ -91,6 +91,7 @@ class MovieModel(Base):
     popularity_score = Column(DECIMAL(18, 2), nullable=True)
     genre_id = Column(Integer, ForeignKey('genres.genre_id'), nullable=False)
     poster_url = Column(String(500), nullable=True)
+    trailer_url = Column(String(500), nullable=True)
     release_date = Column(Date, nullable=False)
 
     # Relationships

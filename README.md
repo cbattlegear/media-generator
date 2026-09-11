@@ -12,6 +12,86 @@ This respository is host to a media generation tool that is part of a larger [Ba
 
 The result is complete movie with title, tagline, description, content rating, critic review and more. In addition a poster is created to match the movie allowing for what is effectively an automatic movie maker. All of this data is largely utilized for [Battlecabbage Media](https://battlecabbage-movies.azurewebsites.net)
 
+## Trailer hosting
+
+The API accepts existing MP4 trailers; it does not generate or transcode video.
+Upload with `PUT /movies/{movie_id}/trailer`, a multipart `file` field with content
+type `video/mp4`, and the same `X-Api-Key` used for poster uploads:
+
+```powershell
+curl.exe -X PUT "http://localhost:8000/movies/42/trailer" `
+  -H "X-Api-Key: YOUR_API_KEY" `
+  -F "file=@C:\Videos\trailer.mp4;type=video/mp4"
+```
+
+The response is the updated movie, including a relative URL such as
+`"trailer_url": "/trailers/movie_42_<unique-id>.mp4"`. Movie listings and detail
+responses also include `trailer_url` (`null` until a trailer is uploaded).
+Resolve relative URLs against the API origin, not a separately hosted frontend.
+Like posters, trailers are **publicly readable without an API key**.
+`GET` and `HEAD` are supported, including HTTP byte ranges for seeking.
+
+Uploads are limited to **250 MiB per file** by default. Set the positive integer
+`TRAILER_MAX_SIZE_MIB` in the API environment to change the cap, then restart the
+API. A request-level limit allows an additional 1 MiB for multipart overhead and
+is enforced while receiving the body, even without `Content-Length`. Invalid
+media returns `422`, unsupported content types return `415`, oversized uploads
+return `413`, and an unknown movie returns `404`.
+
+Videos are checked with `ffprobe` for a readable MP4 container and a video stream.
+For broad browser compatibility, export H.264 video with AAC audio and use MP4
+"fast start" (`ffmpeg -movflags +faststart`). Validation does not transcode files
+or guarantee that every frame is decodable. MP4s with other codecs may not play
+in every browser.
+
+### Deployment and existing databases
+
+**Apply the schema update before deploying the updated API.** For Docker Compose,
+the idempotent initialization script upgrades existing databases as well as
+creating new ones:
+
+```powershell
+docker compose run --rm db-init
+docker compose up -d --build api
+```
+
+For an independently managed SQL Server, run
+`db-init\migrations\001-add-trailer-url.sql` against the movie database using your
+normal database deployment tooling. It adds nullable `movies.trailer_url` and
+can safely be rerun; existing movie rows are preserved.
+
+Docker Compose persists video storage with `./trailers:/app/trailers`, and the
+API image includes FFmpeg. Outside Docker, install FFmpeg with `ffprobe` on the
+API process's `PATH`, and install the updated `requirements.txt` (including
+Starlette's byte-range response support). Missing `ffprobe` returns `503` on
+otherwise valid MP4 uploads.
+
+Files are staged in `trailers\.uploads` and moved atomically into
+`trailers\public` only after validation. Only `public` is mounted at `/trailers`.
+A failed upload leaves the previous trailer URL unchanged. Each successful
+upload gets a new URL; **previous versions are retained** so cached links,
+in-progress playback, and concurrent uploads remain valid. Plan storage
+retention/cleanup accordingly. All API instances must share this storage when
+running on multiple hosts.
+
+If using a reverse proxy, allow at least 251 MiB request bodies for the default
+cap (adjust with the configured cap), set suitable upload/read timeouts, and
+preserve `Range`, `If-Range`, `Content-Range`, and `Accept-Ranges` headers.
+Do not buffer whole trailer responses in application memory.
+
+### Trailer tests
+
+Install the API requirements and the existing development dependencies
+(`pip install -r requirements.txt` and `pip install -e ".[dev]"`), with FFmpeg
+and `ffprobe` on `PATH`, then run:
+
+```powershell
+python -m pytest tests\test_trailers.py
+```
+
+The tests use a temporary SQLite database and a tiny generated MP4, not a live
+SQL Server or an AI backend.
+
 ## Media Generation
 
 ![Media Generation Flow](assets/images/media_generation_flow.jpeg)
